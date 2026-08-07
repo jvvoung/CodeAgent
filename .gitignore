@@ -1,0 +1,15 @@
+backend/.venv/
+.runtime/
+**/__pycache__/
+*.py[cod]
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+.env
+*.log
+outputs/
+work/
+.pytest_cache/
+*.egg-info/
+.DS_Store
+Thumbs.db
