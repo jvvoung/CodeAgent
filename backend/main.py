@@ -9,13 +9,22 @@ from fastapi.responses import StreamingResponse
 
 from agent.agent_loop import run_agent
 from llm.ollama_client import OllamaClient
-from models.schemas import ApplyRequest, ChatRequest, OpenProjectRequest, SearchRequest
+from models.schemas import ApplyRequest, BranchCheckoutRequest, ChatRequest, CommitRequest, OpenProjectRequest, PushRequest, SearchRequest, TerminalRequest
 from security.path_guard import guard
+from services.conversation_store import conversations
 from tools.build_tools import run_build
 from tools.file_tools import read_file, search_code, tree
+from tools.git_tools import commit as git_commit_command
+from tools.git_tools import checkout as git_checkout_command
 from tools.git_tools import diff as git_diff_command
+from tools.git_tools import push as git_push_command
+from tools.git_tools import repository_info as git_info_command
+from tools.git_tools import stage_all as git_stage_command
+from tools.git_tools import staged_changes as git_staged_changes_command
 from tools.git_tools import status as git_status_command
+from tools.git_tools import unstage_all as git_unstage_command
 from tools.patch_tools import apply, clear, pending, reject
+from tools.terminal_tools import run_terminal
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -31,7 +40,8 @@ app.add_middleware(
 
 def fail(exc: object) -> None:
     logger.warning("Request failed: %s", exc)
-    raise HTTPException(status_code=400, detail=str(exc))
+    message = str(exc).strip() or f"{type(exc).__name__}: 자세한 오류 메시지가 없습니다."
+    raise HTTPException(status_code=400, detail=message)
 
 
 @app.get("/api/health")
@@ -40,6 +50,7 @@ async def health():
         "ok": True,
         "python": platform.python_version(),
         "project": str(guard.root) if guard.root else None,
+        "agent_core": "persistent-ollama-tools-v1",
     }
 
 
@@ -65,6 +76,27 @@ async def open_project(body: OpenProjectRequest):
 async def project_tree():
     try:
         return {"tree": tree()}
+    except Exception as exc:
+        fail(exc)
+
+
+@app.get("/api/conversation")
+async def conversation_history():
+    try:
+        if not guard.root:
+            raise ValueError("먼저 프로젝트를 열어주세요.")
+        return {"messages": conversations.messages(guard.root)}
+    except Exception as exc:
+        fail(exc)
+
+
+@app.delete("/api/conversation")
+async def clear_conversation():
+    try:
+        if not guard.root:
+            raise ValueError("먼저 프로젝트를 열어주세요.")
+        conversations.clear(guard.root)
+        return {"ok": True}
     except Exception as exc:
         fail(exc)
 
@@ -134,7 +166,7 @@ async def changes():
 @app.post("/api/change/apply")
 async def apply_changes(body: ApplyRequest):
     try:
-        return {"ok": True, "paths": apply(body.paths)}
+        return {"ok": True, "paths": apply(body.paths, confirm_unverified=body.confirm_unverified)}
     except Exception as exc:
         fail(exc)
 
@@ -160,6 +192,78 @@ async def git_diff():
         fail(exc)
 
 
+@app.get("/api/git/diff/staged")
+async def git_staged_diff():
+    try:
+        return await git_diff_command(staged=True)
+    except Exception as exc:
+        fail(exc)
+
+
+@app.get("/api/git/staged-changes")
+async def git_staged_changes():
+    try:
+        return await git_staged_changes_command()
+    except Exception as exc:
+        fail(exc)
+
+
+@app.get("/api/git/info")
+async def git_info():
+    try:
+        return await git_info_command()
+    except Exception as exc:
+        fail(exc)
+
+
+@app.post("/api/git/checkout")
+async def git_checkout(body: BranchCheckoutRequest):
+    try:
+        result = await git_checkout_command(body.branch)
+        if result["return_code"] != 0:
+            raise ValueError(result["stderr"].strip() or result["stdout"].strip() or "브랜치 전환에 실패했습니다.")
+        clear()
+        return {
+            "result": result,
+            "tree": tree(),
+            "git": await git_info_command(),
+        }
+    except Exception as exc:
+        fail(exc)
+
+
+@app.post("/api/git/stage")
+async def git_stage():
+    try:
+        return await git_stage_command()
+    except Exception as exc:
+        fail(exc)
+
+
+@app.post("/api/git/unstage")
+async def git_unstage():
+    try:
+        return await git_unstage_command()
+    except Exception as exc:
+        fail(exc)
+
+
+@app.post("/api/git/commit")
+async def git_commit(body: CommitRequest):
+    try:
+        return await git_commit_command(body.message)
+    except Exception as exc:
+        fail(exc)
+
+
+@app.post("/api/git/push")
+async def git_push(body: PushRequest):
+    try:
+        return await git_push_command()
+    except Exception as exc:
+        fail(exc)
+
+
 @app.post("/api/build")
 async def build():
     try:
@@ -172,5 +276,13 @@ async def build():
 async def test():
     try:
         return await run_build(test=True)
+    except Exception as exc:
+        fail(exc)
+
+
+@app.post("/api/terminal")
+async def terminal(body: TerminalRequest):
+    try:
+        return await run_terminal(body.shell, body.command, cwd=body.cwd)
     except Exception as exc:
         fail(exc)

@@ -11,5 +11,8 @@ outputs/
 work/
 .pytest_cache/
 *.egg-info/
+.aura-validation/
+.aura-workspaces/
+.vs/
 .DS_Store
 Thumbs.db

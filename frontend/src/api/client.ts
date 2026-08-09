@@ -1,5 +1,5 @@
 import axios, {AxiosError} from "axios";
-import type {AgentEvent, AgentResponse, CommandResult, OllamaModel, ProposedChange, TreeNode} from "../types";
+import type {AgentEvent, AgentResponse, BranchCheckoutResponse, CommandResult, GitFileChange, GitInfo, OllamaModel, ProposedChange, TerminalResult, TerminalShell, TreeNode} from "../types";
 
 const API_BASE = "http://localhost:8000/api";
 const http = axios.create({baseURL: API_BASE, timeout: 310_000});
@@ -16,6 +16,9 @@ export function errorMessage(error: unknown): string {
 }
 
 export const api = {
+  async health(): Promise<{ok: boolean; python: string; project: string | null; agent_core?: string}> {
+    return (await http.get("/health")).data;
+  },
   async models(): Promise<{models: OllamaModel[]; error?: string}> {
     return (await http.get("/ollama/models")).data;
   },
@@ -24,6 +27,12 @@ export const api = {
   },
   async tree(): Promise<TreeNode[]> {
     return (await http.get("/project/tree")).data.tree;
+  },
+  async conversation(): Promise<Array<{role: "user" | "assistant"; content: string}>> {
+    return (await http.get("/conversation")).data.messages;
+  },
+  async clearConversation(): Promise<void> {
+    await http.delete("/conversation");
   },
   async file(path: string): Promise<string> {
     return (await http.get("/file", {params: {path}})).data.content;
@@ -72,16 +81,33 @@ export const api = {
   async changes(): Promise<ProposedChange[]> {
     return (await http.get("/changes")).data.changes;
   },
-  async apply(paths: string[] | null): Promise<void> {
-    await http.post("/change/apply", {paths});
+  async apply(paths: string[] | null, confirmUnverified = false): Promise<void> {
+    await http.post("/change/apply", {paths, confirm_unverified: confirmUnverified});
   },
   async reject(paths: string[] | null): Promise<void> {
     await http.post("/change/reject", {paths});
   },
-  async git(kind: "status" | "diff"): Promise<CommandResult> {
-    return (await http.get(`/git/${kind}`)).data;
+  async git(kind: "status" | "diff" | "staged-diff"): Promise<CommandResult> {
+    const path = kind === "staged-diff" ? "/git/diff/staged" : `/git/${kind}`;
+    return (await http.get(path)).data;
+  },
+  async gitInfo(): Promise<GitInfo> {
+    return (await http.get("/git/info")).data;
+  },
+  async stagedChanges(): Promise<GitFileChange[]> {
+    return (await http.get("/git/staged-changes")).data.files;
+  },
+  async checkoutBranch(branch: string): Promise<BranchCheckoutResponse> {
+    return (await http.post("/git/checkout", {branch})).data;
+  },
+  async gitAction(kind: "stage" | "unstage" | "commit" | "push", value?: string): Promise<CommandResult> {
+    const body = kind === "commit" ? {message: value} : kind === "push" ? {confirmed: true} : undefined;
+    return (await http.post(`/git/${kind}`, body)).data;
   },
   async run(kind: "build" | "test"): Promise<CommandResult> {
     return (await http.post(`/${kind}`)).data;
+  },
+  async terminal(shell: TerminalShell, command: string, cwd: string): Promise<TerminalResult> {
+    return (await http.post("/terminal", {shell, command, cwd})).data;
   },
 };

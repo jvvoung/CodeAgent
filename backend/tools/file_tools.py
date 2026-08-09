@@ -1,5 +1,6 @@
 import shutil
 import subprocess
+import re
 from pathlib import Path
 
 from security.path_guard import guard
@@ -11,6 +12,23 @@ BINARY_SUFFIXES = {
     ".gguf", ".onnx", ".pdf", ".png", ".pyd", ".pyc", ".so", ".tar", ".webp", ".xlsx", ".zip",
 }
 MAX_FILE_SIZE = 1_000_000
+LANGUAGE_SUFFIXES = {
+    ".c": "C", ".cc": "C++", ".cpp": "C++", ".cxx": "C++", ".h": "C/C++",
+    ".hh": "C++", ".hpp": "C++", ".hxx": "C++", ".cs": "C#", ".fs": "F#",
+    ".java": "Java", ".kt": "Kotlin", ".kts": "Kotlin", ".py": "Python",
+    ".js": "JavaScript", ".jsx": "JavaScript", ".ts": "TypeScript", ".tsx": "TypeScript",
+    ".go": "Go", ".rs": "Rust", ".swift": "Swift", ".rb": "Ruby", ".php": "PHP",
+    ".vue": "Vue", ".svelte": "Svelte", ".xaml": "XAML", ".html": "HTML", ".css": "CSS",
+}
+MANIFEST_NAMES = {
+    "cmakelists.txt", "meson.build", "makefile", "package.json", "pyproject.toml",
+    "requirements.txt", "pom.xml", "build.gradle", "build.gradle.kts", "cargo.toml",
+    "go.mod", "composer.json", "gemfile",
+}
+ENTRYPOINT_NAMES = {
+    "main.c", "main.cc", "main.cpp", "main.cxx", "main.py", "main.go", "main.rs",
+    "program.cs", "app.xaml", "app.tsx", "app.jsx", "index.ts", "index.js",
+}
 
 
 def _is_ignored(path: Path) -> bool:
@@ -55,6 +73,70 @@ def list_files(limit: int = 500) -> list[str]:
         if len(files) >= limit:
             break
     return sorted(files)
+
+
+def repository_map(limit: int = 10_000) -> dict:
+    if not guard.root:
+        raise ValueError("먼저 프로젝트를 열어주세요.")
+    languages: dict[str, int] = {}
+    manifests: list[str] = []
+    entry_points: list[str] = []
+    top_level: set[str] = set()
+    file_count = 0
+
+    for file in guard.root.rglob("*"):
+        relative = file.relative_to(guard.root)
+        if _is_ignored(relative) or not file.is_file():
+            continue
+        file_count += 1
+        if relative.parts:
+            top_level.add(relative.parts[0])
+        suffix = file.suffix.lower()
+        language = LANGUAGE_SUFFIXES.get(suffix)
+        if language:
+            languages[language] = languages.get(language, 0) + 1
+        lowered_name = file.name.casefold()
+        relative_text = relative.as_posix()
+        if lowered_name in MANIFEST_NAMES or suffix in {".sln", ".csproj", ".fsproj", ".vcxproj"}:
+            manifests.append(relative_text)
+        if lowered_name in ENTRYPOINT_NAMES:
+            entry_points.append(relative_text)
+        if file_count >= limit:
+            break
+
+    build_systems: set[str] = set()
+    for manifest in manifests:
+        lowered = manifest.casefold()
+        if lowered.endswith("cmakelists.txt"):
+            build_systems.add("CMake")
+        if lowered.endswith((".sln", ".vcxproj")):
+            build_systems.add("Visual Studio/MSBuild")
+        if lowered.endswith((".csproj", ".fsproj")):
+            build_systems.add(".NET/MSBuild")
+        if lowered.endswith("package.json"):
+            build_systems.add("Node.js")
+        if lowered.endswith(("pyproject.toml", "requirements.txt")):
+            build_systems.add("Python")
+        if lowered.endswith(("pom.xml", "build.gradle", "build.gradle.kts")):
+            build_systems.add("JVM")
+        if lowered.endswith("cargo.toml"):
+            build_systems.add("Cargo")
+        if lowered.endswith("go.mod"):
+            build_systems.add("Go modules")
+
+    return {
+        "root": guard.root.name,
+        "file_count": file_count,
+        "languages": [
+            {"name": name, "files": count}
+            for name, count in sorted(languages.items(), key=lambda item: (-item[1], item[0]))
+        ],
+        "build_systems": sorted(build_systems),
+        "manifests": sorted(manifests)[:60],
+        "entry_points": sorted(entry_points)[:40],
+        "top_level": sorted(top_level)[:80],
+        "truncated": file_count >= limit,
+    }
 
 
 def resolve_source_file(path: str) -> Path:
@@ -134,3 +216,56 @@ def search_code(query: str, limit: int = 100) -> list[dict]:
                     break
             return hits
     return _python_search(query, limit)
+
+
+def search_regex(pattern: str, limit: int = 100) -> list[dict]:
+    if not guard.root:
+        raise ValueError("먼저 프로젝트를 열어주세요.")
+    pattern = pattern.strip()
+    if not pattern:
+        raise ValueError("검색 정규식이 필요합니다.")
+    if len(pattern) > 500:
+        raise ValueError("검색 정규식이 너무 깁니다.")
+    try:
+        expression = re.compile(pattern, re.IGNORECASE)
+    except re.error as exc:
+        raise ValueError(f"잘못된 검색 정규식입니다: {exc}") from exc
+
+    hits: list[dict] = []
+    for file in guard.root.rglob("*"):
+        relative = file.relative_to(guard.root)
+        if _is_ignored(relative) or not file.is_file() or file.suffix.lower() in BINARY_SUFFIXES:
+            continue
+        try:
+            if file.stat().st_size > MAX_FILE_SIZE:
+                continue
+            for number, line in enumerate(file.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+                if expression.search(line):
+                    hits.append({"path": relative.as_posix(), "line": number, "text": line[:300]})
+                if len(hits) >= limit:
+                    return hits
+        except OSError:
+            continue
+    return hits
+
+
+def read_file_range(path: str, start_line: int, end_line: int) -> dict:
+    if start_line < 1 or end_line < start_line:
+        raise ValueError("읽을 줄 범위가 올바르지 않습니다.")
+    if end_line - start_line + 1 > 500:
+        raise ValueError("한 번에 최대 500줄까지 읽을 수 있습니다.")
+    target = resolve_source_file(path)
+    size = target.stat().st_size
+    if size > MAX_FILE_SIZE:
+        raise ValueError(f"파일 용량이 제한을 초과했습니다: {guard.relative(target)} ({size:,}바이트, 제한 {MAX_FILE_SIZE:,}바이트)")
+    if target.suffix.lower() in BINARY_SUFFIXES or b"\0" in target.read_bytes()[:4096]:
+        raise ValueError(f"바이너리 파일은 열 수 없습니다: {guard.relative(target)}")
+    lines = target.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+    actual_end = min(end_line, len(lines))
+    return {
+        "path": guard.relative(target),
+        "start_line": start_line,
+        "end_line": actual_end,
+        "total_lines": len(lines),
+        "content": "".join(lines[start_line - 1:actual_end]),
+    }
