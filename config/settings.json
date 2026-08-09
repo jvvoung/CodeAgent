@@ -1,0 +1,19 @@
+{
+  "ollama": {
+    "base_url": "http://localhost:11434",
+    "num_ctx": 16384
+  },
+  "agent": {
+    "timeout_seconds": 300,
+    "max_steps": 24,
+    "validation_repair_attempts": 2
+  },
+  "evidence": {
+    "max_files": 8,
+    "max_chars": 30000,
+    "max_file_chars": 8000
+  },
+  "conversation": {
+    "history_max_chars": 30000
+  }
+}

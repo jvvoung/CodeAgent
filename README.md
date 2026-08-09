@@ -58,37 +58,25 @@ AURA는 React, FastAPI, Monaco Editor, Git CLI와 로컬 Ollama를 연결한 Win
 
 Ollama 기본 주소는 `http://localhost:11434`입니다. AURA는 모델의 `capabilities`에 `tools`가 있는 모델만 Agent 모델로 선택할 수 있게 표시합니다.
 
-## 환경 변수
+## 설정 파일
 
-다음 값이 현재 활성 코드 경로에서 사용됩니다.
+실행 설정은 저장소 루트의 [`config/settings.json`](config/settings.json)에서 관리합니다. 저장소에 포함된 값은 RTX 4090 24GB와 14B급 코딩 모델을 기준으로 한 시작값입니다.
 
-| 환경 변수 | 기본값 | 허용 범위 | 용도 |
-|---|---:|---:|---|
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | URL | Ollama API 주소 |
-| `OLLAMA_NUM_CTX` | `8192` | 4096~131072 | Ollama 컨텍스트 토큰 수 |
-| `AURA_AGENT_TIMEOUT_SECONDS` | `180` | 60~600 | 코드 변경 작업 전체 제한 시간 |
-| `AURA_AGENT_MAX_STEPS` | `18` | 4~30 | 변경 Agent의 최대 도구 단계 수 |
-| `AURA_VALIDATION_REPAIR_ATTEMPTS` | `2` | 0~5 | 검증 실패 후 동일 대화의 수정 기회 |
-| `AURA_EVIDENCE_MAX_FILES` | `5` | 1~12 | 코드 질문에 전달할 근거 파일 수 |
-| `AURA_EVIDENCE_MAX_CHARS` | `15000` | 4000~100000 | 코드 질문 근거 전체 문자 수 |
-| `AURA_EVIDENCE_MAX_FILE_CHARS` | `4000` | 1000~20000 | 근거 한 파일의 최대 문자 수 |
-| `AURA_HISTORY_MAX_CHARS` | `12000` | 4000~100000 | 이전 대화 문맥의 최대 문자 수 |
+| JSON 키 | 현재값 | 허용 범위 | 환경 변수 재정의 | 용도 |
+|---|---:|---:|---|---|
+| `ollama.base_url` | `http://localhost:11434` | URL | `OLLAMA_BASE_URL` | Ollama API 주소 |
+| `ollama.num_ctx` | `16384` | 4096~131072 | `OLLAMA_NUM_CTX` | Ollama 컨텍스트 토큰 수 |
+| `agent.timeout_seconds` | `300` | 60~600 | `AURA_AGENT_TIMEOUT_SECONDS` | 코드 변경 작업 전체 제한 시간 |
+| `agent.max_steps` | `24` | 4~30 | `AURA_AGENT_MAX_STEPS` | 변경 Agent의 최대 도구 단계 수 |
+| `agent.validation_repair_attempts` | `2` | 0~5 | `AURA_VALIDATION_REPAIR_ATTEMPTS` | 검증 실패 후 동일 대화의 수정 기회 |
+| `evidence.max_files` | `8` | 1~12 | `AURA_EVIDENCE_MAX_FILES` | 코드 질문에 전달할 근거 파일 수 |
+| `evidence.max_chars` | `30000` | 4000~100000 | `AURA_EVIDENCE_MAX_CHARS` | 코드 질문 근거 전체 문자 수 |
+| `evidence.max_file_chars` | `8000` | 1000~20000 | `AURA_EVIDENCE_MAX_FILE_CHARS` | 근거 한 파일의 최대 문자 수 |
+| `conversation.history_max_chars` | `30000` | 4000~100000 | `AURA_HISTORY_MAX_CHARS` | 이전 대화 문맥의 최대 문자 수 |
 
-`AURA_CHANGE_EVIDENCE_*`와 `AURA_PROPOSAL_ATTEMPTS`를 참조하는 이전 변경 생성 코드가 일부 남아 있지만, 현재 코드 변경 요청은 앞에서 `run_change_agent()`로 분기되므로 그 값들은 활성 변경 경로에 영향을 주지 않습니다.
+설정 우선순위는 환경 변수, JSON 설정 파일, 코드 내 안전 기본값 순서입니다. 평소에는 JSON만 수정하면 되고, 환경 변수는 CI나 일회 실행에서만 선택적으로 사용합니다. 다른 설정 파일을 쓰려면 `AURA_SETTINGS_FILE`에 절대 경로 또는 저장소 루트 기준 상대 경로를 지정합니다.
 
-RTX 4090 24GB와 더 큰 코딩 모델을 사용하는 PC의 예시는 다음과 같습니다.
-
-```powershell
-$env:OLLAMA_NUM_CTX="16384"
-$env:AURA_AGENT_TIMEOUT_SECONDS="300"
-$env:AURA_AGENT_MAX_STEPS="24"
-$env:AURA_EVIDENCE_MAX_FILES="8"
-$env:AURA_EVIDENCE_MAX_CHARS="30000"
-$env:AURA_EVIDENCE_MAX_FILE_CHARS="8000"
-$env:AURA_HISTORY_MAX_CHARS="30000"
-```
-
-시간과 단계 수를 늘리면 복잡한 요청에 여유가 생기지만, 작은 모델의 잘못된 도구 선택 자체를 해결하지는 않습니다.
+설정 파일은 새 요청부터 다시 읽지만, 진행 중 작업에는 적용되지 않으므로 값을 바꾼 뒤 백엔드를 재시작하는 것이 가장 확실합니다. 시간과 단계 수를 늘리면 복잡한 요청에 여유가 생기지만, 작은 모델의 잘못된 도구 선택 자체를 해결하지는 않습니다.
 
 ## 최초 설치
 
@@ -115,25 +103,49 @@ cd backend
 
 ## 실행 방법
 
-백엔드와 프런트엔드는 각각 실행 중인 프로세스가 필요합니다.
+Ollama 서비스가 먼저 실행 중이어야 하며, 백엔드와 프런트엔드는 서로 다른 PowerShell 창에서 각각 계속 실행해야 합니다. 아래의 `<CodeAgent 저장 경로>`는 clone한 저장소의 절대 경로로 바꿉니다. 현재 PC의 예시는 `D:\1.SW CODE\CodeAgent`입니다.
 
-터미널 1 — FastAPI 백엔드:
+### 1. FastAPI 백엔드 실행
+
+첫 번째 PowerShell 창에서 실행합니다.
 
 ```powershell
-cd backend
+Set-Location "<CodeAgent 저장 경로>\backend"
 .\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-터미널 2 — React/Vite 프런트엔드:
+다음 명령이 성공하면 백엔드, Python 버전, 열린 프로젝트와 실제 설정 파일 경로를 확인할 수 있습니다.
 
 ```powershell
-cd frontend
+Invoke-RestMethod http://127.0.0.1:8000/api/health
+```
+
+API 문서는 `http://127.0.0.1:8000/docs`에서 확인할 수 있습니다.
+
+### 2. React/Vite 프런트엔드 실행
+
+두 번째 PowerShell 창에서 실행합니다.
+
+```powershell
+Set-Location "<CodeAgent 저장 경로>\frontend"
 npm.cmd run dev
 ```
 
-브라우저에서 `http://127.0.0.1:5173`을 열고 작업할 프로젝트의 절대 경로를 입력합니다. API 문서는 `http://127.0.0.1:8000/docs`에서 확인할 수 있습니다.
+브라우저에서 `http://127.0.0.1:5173`을 열고 작업할 프로젝트의 절대 경로를 입력합니다.
 
-두 프로세스를 포그라운드로 실행했다면 해당 PowerShell 창을 닫을 때 서버도 종료됩니다. Ollama 서비스도 별도로 실행 중이어야 합니다.
+### 3. 종료와 재시작
+
+- 각 서버를 실행한 PowerShell 창에서 `Ctrl+C`를 누르면 해당 서버가 종료됩니다.
+- `config/settings.json` 또는 백엔드 Python 코드를 바꿨다면 백엔드를 `Ctrl+C`로 종료하고 1번 명령을 다시 실행합니다.
+- 프런트엔드 개발 서버는 일반적으로 파일 변경을 자동 반영합니다. 반영되지 않으면 `Ctrl+C` 후 2번 명령을 다시 실행합니다.
+- 백엔드를 재시작하면 열린 프로젝트와 대기 중 변경 제안은 초기화됩니다. 브라우저에서 프로젝트를 다시 열어야 하며, 디스크에 저장된 프로젝트별 대화 기억은 유지됩니다.
+- PowerShell 창 자체를 닫아도 그 창에서 실행한 서버가 함께 종료됩니다.
+
+포트 충돌이 의심되면 다음 명령으로 기존 프로세스를 확인합니다.
+
+```powershell
+netstat -ano -p tcp | findstr /C:":8000" /C:":5173"
+```
 
 개발 중 자동 재시작이 필요하면 백엔드 명령에 `--reload`를 추가할 수 있습니다.
 

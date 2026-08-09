@@ -52,7 +52,7 @@ cd CodeAgent
 - `frontend/node_modules`
 - Ollama 모델
 - 개인 Git 인증 정보
-- 프로젝트별 환경 변수와 비밀정보
+- 회사별 프록시 환경 변수와 비밀정보
 
 ## 4. Ollama 준비
 
@@ -137,22 +137,33 @@ npm.cmd install
 
 RTX 4090 24GB 회사 PC에서 14B급 양자화 코딩 모델을 사용할 때의 시작값입니다.
 
-```powershell
-$env:OLLAMA_NUM_CTX="16384"
-$env:AURA_AGENT_TIMEOUT_SECONDS="300"
-$env:AURA_AGENT_MAX_STEPS="24"
-$env:AURA_VALIDATION_REPAIR_ATTEMPTS="2"
-$env:AURA_EVIDENCE_MAX_FILES="8"
-$env:AURA_EVIDENCE_MAX_CHARS="30000"
-$env:AURA_EVIDENCE_MAX_FILE_CHARS="8000"
-$env:AURA_HISTORY_MAX_CHARS="30000"
+```json
+{
+  "ollama": {
+    "base_url": "http://localhost:11434",
+    "num_ctx": 16384
+  },
+  "agent": {
+    "timeout_seconds": 300,
+    "max_steps": 24,
+    "validation_repair_attempts": 2
+  },
+  "evidence": {
+    "max_files": 8,
+    "max_chars": 30000,
+    "max_file_chars": 8000
+  },
+  "conversation": {
+    "history_max_chars": 30000
+  }
+}
 ```
 
-이 설정은 해당 PowerShell 프로세스와 여기서 시작한 백엔드에만 적용됩니다. 영구 환경 변수로 만들기보다는 AURA 실행 스크립트에서 지정하는 방식을 권장합니다.
+위 내용은 이미 저장소의 `config/settings.json`에 포함되어 있습니다. 회사 PC 사양에 맞춰 이 파일을 직접 수정하면 PowerShell마다 환경 변수를 다시 입력할 필요가 없습니다. 환경 변수는 JSON 값을 일시적으로 덮어써야 할 때만 사용합니다.
 
 VRAM 부족, 과도한 공유 GPU 메모리 사용 또는 응답 지연이 발생하면 다음 순서로 낮춥니다.
 
-1. `OLLAMA_NUM_CTX`를 `8192`로 낮춥니다.
+1. `config/settings.json`의 `ollama.num_ctx`를 `8192`로 낮춥니다.
 2. 동시에 실행 중인 다른 GPU 프로그램을 종료합니다.
 3. 더 작은 양자화 또는 모델을 사용합니다.
 
@@ -160,7 +171,7 @@ VRAM 부족, 과도한 공유 GPU 메모리 사용 또는 응답 지연이 발�
 
 ## 8. 실행
 
-PowerShell 창 두 개와 실행 중인 Ollama 서비스가 필요합니다.
+PowerShell 창 두 개와 실행 중인 Ollama 서비스가 필요합니다. 아래 명령은 저장소의 상위 폴더에서 실행하는 예시이며, 다른 위치에 clone했다면 실제 절대 경로를 사용합니다.
 
 터미널 1 — FastAPI 백엔드:
 
@@ -169,7 +180,7 @@ cd CodeAgent\backend
 .\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-RTX 4090 권장 환경 변수는 이 명령을 실행할 PowerShell 창에서 먼저 설정합니다.
+설정을 바꿨다면 진행 중인 작업을 중지하고 백엔드를 재시작합니다.
 
 터미널 2 — React/Vite 프런트엔드:
 
@@ -191,6 +202,8 @@ http://127.0.0.1:8000/docs
 ```
 
 PowerShell에서 포그라운드로 실행한 경우 창을 닫으면 해당 서버도 종료됩니다. AURA 사용 중에는 백엔드, 프런트엔드와 Ollama가 모두 실행 중이어야 합니다.
+
+서버 종료는 각 PowerShell 창에서 `Ctrl+C`를 누릅니다. 백엔드 재시작 시 열린 프로젝트와 대기 중 변경 제안은 메모리에서 초기화되므로 브라우저에서 프로젝트를 다시 열어야 합니다. `%LOCALAPPDATA%\AURA\conversations.json`에 저장된 대화 기억은 유지됩니다.
 
 ## 9. 설치 확인
 
@@ -219,6 +232,7 @@ Invoke-RestMethod http://127.0.0.1:8000/api/ollama/models
 
 - `/api/health`의 `python`이 `3.10.x`인가.
 - `/api/health`의 `agent_core`가 `persistent-ollama-tools-v1`인가.
+- `/api/health`의 `settings_file`이 clone한 저장소의 `config/settings.json`을 가리키는가.
 - `/api/ollama/models`에 설치한 모델이 표시되는가.
 - 모델의 `supports_tools`가 `true`인가.
 - 프런트엔드에서 프로젝트를 열고 파일 트리가 표시되는가.
@@ -258,13 +272,14 @@ AURA의 Push 확인 팝업은 사용자 실수 방지 절차이며 GitHub 또는
 
 회사 코드를 로컬 PC 밖으로 보내지 않으려면 다음을 확인합니다.
 
-- `OLLAMA_BASE_URL`을 기본값 `http://localhost:11434`로 유지합니다.
+- `config/settings.json`의 `ollama.base_url`을 기본값 `http://localhost:11434`로 유지합니다.
 - 원격 Ollama 주소를 사용하지 않습니다.
 - FastAPI를 `127.0.0.1`에만 바인딩합니다.
 - 회사 방화벽 정책과 허용된 Git 원격을 확인합니다.
 - Push 전 원격 저장소 주소와 현재 브랜치를 확인합니다.
 - 대화 기억 파일 `%LOCALAPPDATA%\AURA\conversations.json`의 사내 보존 정책을 확인합니다.
 - `.env`, 키, 토큰 같은 비밀정보를 Agent 질문에 직접 포함하지 않습니다.
+- `config/settings.json`은 Git에 포함되는 운영 설정이므로 토큰이나 비밀번호를 기록하지 않습니다.
 
 AURA API에는 사용자 인증이 없으므로 `--host 0.0.0.0`으로 실행하지 않는 것을 권장합니다.
 

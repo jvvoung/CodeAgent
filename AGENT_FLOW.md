@@ -69,6 +69,7 @@ flowchart TD
 | C | `frontend/src/api/client.ts` | `api.chatStream()` | `{message, model}`을 `/api/agent/chat/stream`으로 보내고 NDJSON 응답을 한 줄씩 처리한다. |
 | D | `backend/main.py` | `chat_stream()` | `run_agent()`를 비동기 태스크로 실행하고 상태 이벤트, heartbeat, 최종 결과를 스트리밍한다. |
 | E | `backend/agent/agent_loop.py` | `run_agent()` | 프로젝트 확인, 대화 기억 로드, Git/변경/질문 분기, 전체 시간 제한을 담당한다. |
+| 설정 | `backend/services/app_settings.py`, `config/settings.json` | `get_int_setting()`, `get_string_setting()` | JSON 설정을 읽고 범위를 검사한다. 같은 키의 환경 변수가 있으면 JSON보다 우선한다. |
 | F | `backend/agent/agent_loop.py` | `_direct_git_intent()`, `_direct_git_response()` | Git 요청을 해석하고 전용 Git 도구를 직접 실행한다. 이 분기는 일반 Ollama 도구 루프를 거치지 않는다. |
 | G | `backend/agent/tool_agent.py` | `run_change_agent()` | 한 Ollama 대화 안에서 검색, 읽기, 수정, 검증, 수정 재시도를 반복한다. |
 | H | `backend/agent/retrieval.py`, `backend/llm/ollama_client.py` | `collect_repository_evidence()`, `answer_from_evidence()` | 코드 질문과 원인 분석에 필요한 실제 저장소 근거를 수집하고 그 근거만 사용해 답변한다. 근거가 부족하면 `run_agent()`의 탐색 도구 루프로 넘어간다. |
@@ -294,7 +295,7 @@ validate()
 | `unavailable` | 검증 구성을 찾지 못했거나 패키지·실행 환경 문제로 검증할 수 없다. |
 | `scope_review_incomplete` | 여러 파일 Diff에 대한 모델의 범위 검토가 완료되지 않았다. |
 
-검증 실패가 발생하면 기본 `AURA_VALIDATION_REPAIR_ATTEMPTS=2` 범위에서 오류 메시지를 동일한 Ollama 대화로 반환해 파일을 다시 읽고 수정하게 한다. 수정에 실패해도 실제 Diff가 하나 이상 존재하면 검증 상태와 오류를 함께 변경 제안에 보존한다.
+검증 실패가 발생하면 기본 `agent.validation_repair_attempts=2` 범위에서 오류 메시지를 동일한 Ollama 대화로 반환해 파일을 다시 읽고 수정하게 한다. 수정에 실패해도 실제 Diff가 하나 이상 존재하면 검증 상태와 오류를 함께 변경 제안에 보존한다.
 
 ## 7. 변경 제안 저장과 UI 표시
 
@@ -359,23 +360,24 @@ ChangesPanel의 폐기 버튼
 
 - 프로젝트 절대 경로의 SHA-256 해시를 키로 사용한다.
 - 프로젝트별 최대 100개 메시지를 저장한다.
-- LLM 문맥에는 기본적으로 최근 최대 16개, 총 12,000자까지 사용한다.
+- LLM 문맥에는 기본적으로 최근 최대 16개, 총 `conversation.history_max_chars=30000`자까지 사용한다.
 - 격리 작업은 시작했지만 변경 제안을 만들지 못한 실패 턴은 기억에 저장하지 않는다.
 - 저장된 실패 응답도 다음 요청 문맥에서 다시 걸러낸다.
 - UI의 `대화 초기화`는 현재 프로젝트의 기억만 삭제한다.
 
 ## 10. 중지, 반복 횟수와 시간 제한
 
-| 제한 | 코드 위치 | 기본값 |
-|---|---|---|
-| 전체 코드 변경 작업 시간 | `agent_loop.run_agent()`의 `asyncio.wait_for()` | `AURA_AGENT_TIMEOUT_SECONDS=180`, 허용 범위 60~600초 |
-| 변경 에이전트 단계 수 | `tool_agent.run_change_agent()` | `AURA_AGENT_MAX_STEPS=18`, 허용 범위 4~30회 |
-| 검증 실패 후 수정 기회 | `tool_agent.run_change_agent()` | `AURA_VALIDATION_REPAIR_ATTEMPTS=2`, 허용 범위 0~5회 |
-| 한 검증 명령 | `proposal_validator._run_validation()` | 240초 |
-| Ollama 일반 도구 응답 HTTP 제한 | `OllamaClient.chat()` | 600초 |
-| 강제 도구 선택 응답 제한 | `OllamaClient.force_tool_call()` | 90초 |
+| 제한 | 코드 위치 | JSON 설정과 현재값 | 환경 변수 재정의 |
+|---|---|---|---|
+| Ollama 컨텍스트 크기 | `OllamaClient.__init__()` | `ollama.num_ctx=16384`, 허용 범위 4096~131072 | `OLLAMA_NUM_CTX` |
+| 전체 코드 변경 작업 시간 | `agent_loop.run_agent()`의 `asyncio.wait_for()` | `agent.timeout_seconds=300`, 허용 범위 60~600초 | `AURA_AGENT_TIMEOUT_SECONDS` |
+| 변경 에이전트 단계 수 | `tool_agent.run_change_agent()` | `agent.max_steps=24`, 허용 범위 4~30회 | `AURA_AGENT_MAX_STEPS` |
+| 검증 실패 후 수정 기회 | `tool_agent.run_change_agent()` | `agent.validation_repair_attempts=2`, 허용 범위 0~5회 | `AURA_VALIDATION_REPAIR_ATTEMPTS` |
+| 한 검증 명령 | `proposal_validator._run_validation()` | 240초 | 없음 |
+| Ollama 일반 도구 응답 HTTP 제한 | `OllamaClient.chat()` | 600초 | 없음 |
+| 강제 도구 선택 응답 제한 | `OllamaClient.force_tool_call()` | 90초 | 없음 |
 
-코드 변경 작업에서는 바깥쪽 180초 제한이 전체 작업을 감싸므로, 내부 Ollama 또는 검증 함수의 개별 제한이 더 길어도 기본 설정에서는 180초가 실질적인 총 제한이다.
+코드 변경 작업에서는 바깥쪽 300초 제한이 전체 작업을 감싸므로, 내부 Ollama 또는 검증 함수의 개별 제한이 더 길어도 현재 설정에서는 300초가 실질적인 총 제한이다. 이 값들은 저장소 루트의 `config/settings.json`에서 관리한다.
 
 프런트엔드 중지 버튼은 `App.stopAgent()`에서 현재 `AbortController.abort()`를 호출한다. 브라우저 스트림이 닫히면 `backend/main.py`의 `chat_stream()` 정리 구간이 아직 실행 중인 에이전트 태스크를 취소한다.
 
@@ -405,6 +407,7 @@ run_agent()
 | `backend/agent/workspace.py` | 격리된 baseline/worktree, 검색·읽기·수정·Diff |
 | `backend/agent/retrieval.py` | 저장소 질문용 자동 코드 근거 수집 |
 | `backend/llm/ollama_client.py` | 로컬 Ollama API 호출, 도구 호출 복구, 근거 기반 답변 |
+| `backend/services/app_settings.py` | `config/settings.json` 로드, 정수 범위 검사, 환경 변수 재정의 |
 | `backend/services/proposal_validator.py` | 프로젝트별 검증 명령 선택과 baseline/worktree 결과 비교 |
 | `backend/services/conversation_store.py` | 프로젝트별 대화 기억 저장 |
 | `backend/tools/patch_tools.py` | 변경 제안 `pending`, 실제 적용과 폐기 |
@@ -412,6 +415,7 @@ run_agent()
 | `frontend/src/components/TerminalPanel.tsx` | 사용자가 선택한 CMD/PowerShell/Git Bash 명령과 현재 cwd UI |
 | `backend/tools/terminal_tools.py` | Agent와 분리된 사용자 터미널 명령 실행과 cwd 추적 |
 | `backend/security/path_guard.py` | 열린 프로젝트 밖 경로 접근 방지 |
+| `config/settings.json` | Ollama 주소·컨텍스트, Agent 제한, 근거와 대화 문맥 설정 |
 
 모든 Ollama 요청, 코드 검색, 격리 변경, 검증과 Diff는 로컬 PC 안에서 처리된다.
 

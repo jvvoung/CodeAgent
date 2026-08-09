@@ -12,6 +12,7 @@ from llm.ollama_client import OllamaClient
 from models.schemas import ApplyRequest, BranchCheckoutRequest, ChatRequest, CommitRequest, OpenProjectRequest, PushRequest, SearchRequest, TerminalRequest
 from security.path_guard import guard
 from services.conversation_store import conversations
+from services.app_settings import settings_path
 from tools.build_tools import run_build
 from tools.file_tools import read_file, search_code, tree
 from tools.git_tools import commit as git_commit_command
@@ -51,6 +52,7 @@ async def health():
         "python": platform.python_version(),
         "project": str(guard.root) if guard.root else None,
         "agent_core": "persistent-ollama-tools-v1",
+        "settings_file": str(settings_path()),
     }
 
 

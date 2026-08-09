@@ -4,6 +4,8 @@ import os
 import threading
 from pathlib import Path
 
+from services.app_settings import get_int_setting
+
 
 class ConversationStore:
     def __init__(self, path: Path | None = None) -> None:
@@ -44,11 +46,7 @@ class ConversationStore:
 
     def context(self, project: Path, max_messages: int = 16, max_chars: int | None = None) -> list[dict[str, str]]:
         if max_chars is None:
-            try:
-                max_chars = int(os.getenv("AURA_HISTORY_MAX_CHARS", "12000"))
-            except ValueError:
-                max_chars = 12_000
-            max_chars = min(max(max_chars, 4_000), 100_000)
+            max_chars = get_int_setting("AURA_HISTORY_MAX_CHARS", 12_000, 4_000, 100_000)
         selected: list[dict[str, str]] = []
         total = 0
         for message in reversed(self.messages(project)):

@@ -1,6 +1,5 @@
 import asyncio
 import json
-import os
 import re
 from collections.abc import Awaitable, Callable
 
@@ -10,6 +9,7 @@ from agent.retrieval import collect_repository_evidence
 from agent.tool_agent import run_change_agent
 from security.path_guard import guard
 from services.conversation_store import conversations
+from services.app_settings import get_int_setting
 from services.proposal_validator import validate_proposal
 from tools.file_tools import list_files, read_file, read_file_range, repository_map, resolve_source_file, search_code, search_regex
 from tools.git_tools import commit as git_commit
@@ -67,11 +67,7 @@ def _arguments(call: dict) -> dict:
 
 
 def _configuration_int(name: str, default: int, minimum: int, maximum: int) -> int:
-    try:
-        value = int(os.getenv(name, str(default)))
-    except ValueError:
-        value = default
-    return min(max(value, minimum), maximum)
+    return get_int_setting(name, default, minimum, maximum)
 
 
 def _embedded_tool_calls(content: str, allowed_names: set[str]) -> list[dict]:
@@ -561,11 +557,7 @@ async def run_agent(message: str, model: str, on_event: EventCallback | None = N
     if _requests_change(message):
         client = OllamaClient()
         local_map = {**project_overview, "absolute_root": project}
-        try:
-            timeout_seconds = int(os.getenv("AURA_AGENT_TIMEOUT_SECONDS", "180"))
-        except ValueError:
-            timeout_seconds = 180
-        timeout_seconds = min(max(timeout_seconds, 60), 600)
+        timeout_seconds = get_int_setting("AURA_AGENT_TIMEOUT_SECONDS", 180, 60, 600)
         try:
             result = await asyncio.wait_for(run_change_agent(
                 message=message,

@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable
 
 from agent.workspace import AgentWorkspace, PatchError
 from llm.ollama_client import OllamaClient, normalize_tool_arguments
+from services.app_settings import get_int_setting
 from services.proposal_validator import classify_validation, run_workspace_validation
 from tools.patch_tools import stage_preview
 
@@ -92,11 +93,7 @@ TOOLS = [
 
 
 def _integer_setting(name: str, default: int, minimum: int, maximum: int) -> int:
-    try:
-        value = int(os.getenv(name, str(default)))
-    except ValueError:
-        value = default
-    return min(max(value, minimum), maximum)
+    return get_int_setting(name, default, minimum, maximum)
 
 
 def _arguments(call: dict) -> dict:

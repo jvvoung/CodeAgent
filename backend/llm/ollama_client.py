@@ -1,4 +1,3 @@
-import os
 import asyncio
 import difflib
 import json
@@ -6,6 +5,8 @@ import re
 from collections.abc import AsyncIterator
 
 import httpx
+
+from services.app_settings import get_int_setting, get_string_setting
 
 
 def recover_json_string_field(content: str, field: str) -> str | None:
@@ -350,12 +351,8 @@ def _duplicate_definition_error(original: str, candidate: str, diagnostics: str,
 
 class OllamaClient:
     def __init__(self, base: str | None = None) -> None:
-        self.base = (base or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")).rstrip("/")
-        try:
-            configured_context = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
-        except ValueError:
-            configured_context = 8192
-        self.num_ctx = min(max(configured_context, 4096), 131072)
+        self.base = (base or get_string_setting("OLLAMA_BASE_URL", "http://localhost:11434")).rstrip("/")
+        self.num_ctx = get_int_setting("OLLAMA_NUM_CTX", 8_192, 4_096, 131_072)
 
     async def list_models(self) -> list[str]:
         async with httpx.AsyncClient(timeout=5) as client:

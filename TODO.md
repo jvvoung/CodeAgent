@@ -10,6 +10,7 @@
 - [x] 프로젝트 지도, 정확 검색, 정규식 검색, 제한된 파일 읽기
 - [x] 프로젝트 질문의 자동 코드 근거 수집과 근거 기반 답변
 - [x] 프로젝트별 대화 기억과 대화 초기화
+- [x] `config/settings.json` 기반 실행 설정과 선택적 환경 변수 재정의
 - [x] 지속형 Ollama 변경 도구 루프
 - [x] 격리된 baseline/worktree와 변경 누적
 - [x] exact `replace_text`와 문맥 기반 `apply_patch`

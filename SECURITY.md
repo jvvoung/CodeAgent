@@ -4,7 +4,7 @@
 
 AURA는 회사 PC 또는 개인 PC에서 한 명의 사용자가 `127.0.0.1`로 실행하는 로컬 개발 도구를 전제로 합니다. 현재 API 인증, 사용자 계정, 역할 기반 권한, 원격 다중 사용자 격리는 제공하지 않습니다.
 
-Ollama 요청과 검색·Diff 데이터는 설정된 `OLLAMA_BASE_URL`로 전송됩니다. 기본값은 로컬 `http://localhost:11434`이지만 사용자가 다른 주소로 바꾸면 코드 근거도 그 주소로 전달될 수 있습니다.
+Ollama 요청과 검색·Diff 데이터는 `config/settings.json`의 `ollama.base_url`로 전송됩니다. 기본값은 로컬 `http://localhost:11434`이지만 사용자가 다른 주소로 바꾸면 코드 근거도 그 주소로 전달될 수 있습니다. `OLLAMA_BASE_URL` 환경 변수가 있으면 JSON 값보다 우선합니다.
 
 ## Agent 파일 경계
 
@@ -67,6 +67,8 @@ Ollama 요청과 검색·Diff 데이터는 설정된 `OLLAMA_BASE_URL`로 전송
 
 ## 로그와 비밀정보
 
+- `config/settings.json`은 Git에 포함되므로 API 키, 토큰, 비밀번호를 저장하지 않아야 합니다.
+- 다른 설정 파일을 선택하는 `AURA_SETTINGS_FILE` 역시 비밀정보 저장소가 아닙니다.
 - 대화 내용은 `%LOCALAPPDATA%\AURA\conversations.json`에 평문 JSON으로 저장됩니다.
 - 프로젝트 코드 일부와 오류 메시지가 Ollama 대화에 포함됩니다.
 - 터미널 stdout/stderr와 빌드 결과가 UI에 표시됩니다.

@@ -1,8 +1,8 @@
-import os
 import re
 from collections import defaultdict
 
 from tools.file_tools import read_file_range, search_code
+from services.app_settings import get_int_setting
 
 
 KOREAN_SUFFIXES = (
@@ -46,11 +46,7 @@ def extract_search_terms(message: str, limit: int = 8) -> list[str]:
 
 
 def _environment_int(name: str, default: int, minimum: int, maximum: int) -> int:
-    try:
-        value = int(os.getenv(name, str(default)))
-    except ValueError:
-        value = default
-    return min(max(value, minimum), maximum)
+    return get_int_setting(name, default, minimum, maximum)
 
 
 def collect_repository_evidence(

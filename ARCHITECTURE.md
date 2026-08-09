@@ -20,6 +20,7 @@ FastAPI           ▼
 ├─ agent/workspace.py         격리 baseline/worktree, 검색·읽기·수정·Diff
 ├─ agent/retrieval.py         질문 검색어 추출과 저장소 근거 수집
 ├─ llm/ollama_client.py       로컬 Ollama HTTP client
+├─ services/app_settings.py   JSON 설정 로드, 범위 검사, 환경 변수 재정의
 ├─ services/conversation_store.py 프로젝트별 대화 기억
 ├─ services/proposal_validator.py 변경 전후 빌드·구문 검증
 ├─ services/command_runner.py 인수 배열 기반 subprocess와 timeout
@@ -29,6 +30,8 @@ FastAPI           ▼
 ├─ tools/build_tools.py       UI 빌드/테스트 명령 판별
 ├─ tools/terminal_tools.py    사용자 터미널 명령 실행과 cwd 추적
 └─ security/path_guard.py     파일 API의 프로젝트 루트 경계
+
+config/settings.json          Ollama, Agent, 근거, 대화 문맥 실행 설정
 ```
 
 ## 런타임 상태
@@ -38,6 +41,7 @@ FastAPI는 현재 로컬 단일 사용자·단일 프로세스 MVP를 전제로 
 | 상태 | 위치 | 수명 |
 |---|---|---|
 | 열린 프로젝트 루트 | `security.path_guard.guard.root` | 백엔드 프로세스 또는 다음 프로젝트 열기까지 |
+| 실행 설정 | `config/settings.json` | 각 설정 조회 시 다시 읽음 |
 | 대기 중 변경안 | `tools.patch_tools.pending` | 백엔드 프로세스 또는 적용·폐기·프로젝트 전환까지 |
 | 프로젝트별 대화 | `%LOCALAPPDATA%\AURA\conversations.json` | 사용자가 초기화할 때까지 디스크에 유지 |
 | UI 테마·터미널 종류 | 브라우저 `localStorage` | 브라우저 저장소를 지울 때까지 |
@@ -46,10 +50,17 @@ FastAPI는 현재 로컬 단일 사용자·단일 프로세스 MVP를 전제로 
 
 새 프로젝트를 열거나 Git 브랜치를 전환하면 기존 pending 변경안은 폐기됩니다. 현재 전역 상태는 다중 사용자, 여러 브라우저 세션, 동시 Agent 작업을 안전하게 분리하지 않습니다.
 
+백엔드를 재시작하면 `guard.root`와 `pending` 같은 프로세스 메모리 상태는 초기화되지만 디스크의 대화 기억과 브라우저 `localStorage`는 유지됩니다. 재시작 후 사용자는 프로젝트를 다시 열어야 합니다.
+
+## 실행 설정
+
+`backend/services/app_settings.py`가 저장소 루트의 `config/settings.json`을 읽고 정수 범위를 검사합니다. 값의 우선순위는 해당 환경 변수, JSON 설정, 코드 내 안전 기본값 순서입니다. `AURA_SETTINGS_FILE`을 지정하면 기본 파일 대신 절대 경로 또는 저장소 루트 기준 상대 경로의 JSON 파일을 사용합니다. 로더는 값을 캐시하지 않으므로 새 요청은 수정된 파일을 읽지만, 이미 실행 중인 Agent 작업에는 변경값이 소급 적용되지 않습니다.
+
 ## API 경계
 
 주요 API 그룹은 다음과 같습니다.
 
+- `/api/health`, `/api/ollama/models`: 실행 상태·설정 파일 경로와 Ollama 모델 조회
 - `/api/project/*`: 프로젝트 열기, 트리, 파일 읽기
 - `/api/conversation`: 프로젝트별 대화 조회와 초기화
 - `/api/agent/chat/stream`: NDJSON Agent 진행 이벤트와 최종 응답

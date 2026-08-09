@@ -25,14 +25,14 @@ class OllamaClientTest(unittest.TestCase):
     def test_uses_larger_configurable_agent_context(self) -> None:
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("OLLAMA_NUM_CTX", None)
-            self.assertEqual(OllamaClient().num_ctx, 8_192)
-
-        with patch.dict(os.environ, {"OLLAMA_NUM_CTX": "16384"}):
             self.assertEqual(OllamaClient().num_ctx, 16_384)
+
+        with patch.dict(os.environ, {"OLLAMA_NUM_CTX": "8192"}):
+            self.assertEqual(OllamaClient().num_ctx, 8_192)
 
     def test_invalid_context_falls_back_safely(self) -> None:
         with patch.dict(os.environ, {"OLLAMA_NUM_CTX": "invalid"}):
-            self.assertEqual(OllamaClient().num_ctx, 8_192)
+            self.assertEqual(OllamaClient().num_ctx, 16_384)
 
     def test_normalizes_nested_ollama_tool_arguments(self) -> None:
         payload = normalize_tool_arguments({
