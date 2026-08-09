@@ -171,4 +171,4 @@ npm.cmd run build
 - AURA API에는 사용자 인증이 없으므로 백엔드는 `127.0.0.1`에만 바인딩하는 것을 권장합니다.
 - Push는 UI 확인과 `confirmed: true` 요청 검증을 거치지만, 이는 사용자 인증이나 권한 시스템을 대체하지 않습니다.
 
-자세한 내용은 [ARCHITECTURE.md](ARCHITECTURE.md), [AGENT_FLOW.md](AGENT_FLOW.md), [SECURITY.md](SECURITY.md), [TODO.md](TODO.md)를 참고하세요.
+회사 PC 설치 절차는 [COMPANY_SETUP.md](COMPANY_SETUP.md)를 참고하세요. 자세한 내부 구조와 정책은 [ARCHITECTURE.md](ARCHITECTURE.md), [AGENT_FLOW.md](AGENT_FLOW.md), [SECURITY.md](SECURITY.md), [TODO.md](TODO.md)에 정리되어 있습니다.
