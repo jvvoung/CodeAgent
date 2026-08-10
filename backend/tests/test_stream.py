@@ -5,6 +5,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from main import app
+from tests import auth_headers
 
 
 class AgentStreamTest(unittest.TestCase):
@@ -20,9 +21,11 @@ class AgentStreamTest(unittest.TestCase):
             }
 
         with patch("main.run_agent", new=fake_agent):
-            response = TestClient(app).post(
+            client = TestClient(app)
+            response = client.post(
                 "/api/agent/chat/stream",
                 json={"message": "버튼 문구를 바꿔줘", "model": "test-model"},
+                headers=auth_headers(client),
             )
 
         self.assertEqual(response.status_code, 200)

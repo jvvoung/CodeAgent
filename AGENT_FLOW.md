@@ -10,6 +10,7 @@
 - 코드 변경은 먼저 격리 작업공간에 누적한다.
 - 사용자가 변경 제안에서 적용을 선택해야 실제 프로젝트 파일이 변경된다.
 - 프런트엔드는 현재 열려 있는 코드 파일을 에이전트 요청에 포함하지 않는다. 현재 요청 본문은 `message`와 `model`뿐이다.
+- 프로젝트가 Git 저장소의 하위 폴더여도 파일 도구는 열린 프로젝트 경계를 유지하고 Git 도구만 발견한 상위 Git Root에서 실행한다.
 
 ## 1. 전체 호출 흐름과 담당 함수
 
@@ -398,9 +399,17 @@ run_agent()
 
 | 파일 | 책임 |
 |---|---|
+| `frontend/src/auth.ts` | sessionStorage 인증 상태와 역할별 페이지 접근 판정 |
+| `frontend/src/components/LoginPage.tsx` | AURA 로그인 Form과 로그인 API 호출 |
 | `frontend/src/components/ChatPanel.tsx` | 사용자 입력, 전송, 중지, 대화 초기화 UI |
+| `frontend/src/components/HomeView.tsx` | 메시지 표시·입력을 조합한 HOME AI 채팅 UI |
+| `frontend/src/components/NavigationMenu.tsx` | 역할별 HOME/Code Assistant, Settings와 로그아웃 |
+| `frontend/src/components/SettingsDialog.tsx` | 테마 임시 선택, 저장과 취소 모달 |
 | `frontend/src/App.tsx` | 에이전트 요청 상태, 진행 메시지, 변경 제안 갱신, 적용·폐기 orchestration |
 | `frontend/src/api/client.ts` | FastAPI HTTP·NDJSON 클라이언트 |
+| `backend/api/auth.py` | 로그인·로그아웃 API |
+| `backend/auth/auth_service.py` | users.json, 비밀번호 검증 경계와 메모리 세션 |
+| `backend/auth/dependencies.py` | Bearer 세션과 developer 역할 검사 |
 | `backend/main.py` | FastAPI 라우트와 스트리밍 응답 |
 | `backend/agent/agent_loop.py` | 요청 분류, Git 직접 경로, 질문 답변 경로, 변경 에이전트 진입, 대화 저장 |
 | `backend/agent/tool_agent.py` | 지속형 Ollama 변경 도구 루프와 안전장치 |
@@ -414,7 +423,7 @@ run_agent()
 | `backend/tools/git_tools.py` | 승인된 Git 작업 실행 |
 | `frontend/src/components/TerminalPanel.tsx` | 사용자가 선택한 CMD/PowerShell/Git Bash 명령과 현재 cwd UI |
 | `backend/tools/terminal_tools.py` | Agent와 분리된 사용자 터미널 명령 실행과 cwd 추적 |
-| `backend/security/path_guard.py` | 열린 프로젝트 밖 경로 접근 방지 |
+| `backend/security/path_guard.py` | 열린 프로젝트 밖 파일 접근 방지와 상위 Git Root 탐색 |
 | `config/settings.json` | Ollama 주소·컨텍스트, Agent 제한, 근거와 대화 문맥 설정 |
 
 모든 Ollama 요청, 코드 검색, 격리 변경, 검증과 Diff는 로컬 PC 안에서 처리된다.

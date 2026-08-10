@@ -7,6 +7,19 @@ class OpenProjectRequest(BaseModel):
     path: str = Field(min_length=1)
 
 
+class LoginRequest(BaseModel):
+    id: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=1, max_length=500)
+
+    @field_validator("id")
+    @classmethod
+    def strip_id(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("아이디를 입력해 주세요.")
+        return value
+
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=20_000)
     model: str = Field(min_length=1)

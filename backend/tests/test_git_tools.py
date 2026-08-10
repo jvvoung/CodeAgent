@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from main import app
 from security.path_guard import guard
+from tests import auth_headers
 from tools.git_tools import branches, checkout, commit, diff, repository_info, stage_all, staged_changes, status, unstage_all
 
 
@@ -21,10 +22,39 @@ class GitToolsTest(unittest.TestCase):
         subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=self.root, check=True)
         (self.root / "README.md").write_text("# Test\n", encoding="utf-8")
         guard.open(str(self.root))
+        self.client = TestClient(app)
+        self.headers = auth_headers(self.client)
 
     def tearDown(self) -> None:
         guard.root = None
+        guard.git_root = None
         self.temporary.cleanup()
+
+    def test_nested_project_path_uses_parent_git_repository(self) -> None:
+        nested = self.root / "src" / "feature"
+        nested.mkdir(parents=True)
+        response = self.client.post("/api/project/open", json={"path": str(nested)}, headers=self.headers)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Path(response.json()["git_root"]), self.root.resolve())
+        self.assertEqual(guard.root, nested.resolve())
+        self.assertEqual(guard.git_root, self.root.resolve())
+        self.assertEqual(asyncio.run(stage_all())["return_code"], 0)
+        self.assertEqual(asyncio.run(commit("Initial nested project"))["return_code"], 0)
+        info = asyncio.run(repository_info())
+        self.assertEqual(Path(info["root"]), self.root.resolve())
+        self.assertEqual(info["branch"], "main")
+
+    def test_project_without_parent_git_repository_reports_none(self) -> None:
+        isolated = self.root.parent / f"{self.root.name}-isolated"
+        isolated.mkdir()
+        try:
+            guard.open(str(isolated))
+            self.assertIsNone(guard.git_root)
+            with self.assertRaisesRegex(ValueError, "Git 저장소를 찾지 못했습니다"):
+                asyncio.run(status())
+        finally:
+            isolated.rmdir()
 
     def test_stage_commit_diff_and_unstage(self) -> None:
         self.assertEqual(asyncio.run(stage_all())["return_code"], 0)
@@ -44,14 +74,14 @@ class GitToolsTest(unittest.TestCase):
         self.assertIn("README.md", asyncio.run(status())["stdout"])
 
     def test_push_requires_explicit_confirmation(self) -> None:
-        response = TestClient(app).post("/api/git/push", json={"confirmed": False})
+        response = self.client.post("/api/git/push", json={"confirmed": False}, headers=self.headers)
         self.assertEqual(response.status_code, 422)
 
         async def fake_push():
             return {"command": "git push", "return_code": 0, "stdout": "ok", "stderr": "", "duration": 0.1}
 
         with patch("main.git_push_command", new=fake_push):
-            response = TestClient(app).post("/api/git/push", json={"confirmed": True})
+            response = self.client.post("/api/git/push", json={"confirmed": True}, headers=self.headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["return_code"], 0)
 

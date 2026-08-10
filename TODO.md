@@ -23,6 +23,10 @@
 
 ### UI와 변경 검토
 
+- [x] HOME 기본 화면과 HOME/Code Assistant/Settings Navigation
+- [x] AURA 로그인, HOME 채팅 UI, 로그아웃과 역할별 Navigation
+- [x] Settings 모달의 Dark/Light 테마 Save/Cancel 및 영구 저장
+- [x] 프로젝트를 새로 열 때 파일 탐색기 하위 폴더 기본 접힘
 - [x] 프로젝트 탐색기와 읽기 전용 Monaco 코드 뷰어
 - [x] Monaco side-by-side Diff와 첫 변경 위치 자동 이동
 - [x] 파일별/전체 적용·폐기와 실패 변경안 재생성
@@ -33,6 +37,7 @@
 
 ### Git, 빌드와 터미널
 
+- [x] 하위 프로젝트 경로에서 상위 Git Root 자동 탐색
 - [x] Git 저장소·브랜치·원격 표시
 - [x] 로컬/원격 브랜치 checkout
 - [x] status, 작업 트리 Diff, 스테이징 파일별 Diff
@@ -50,7 +55,8 @@
 
 ## 우선순위 P0 — 보안과 상태 격리
 
-- [ ] API 인증 또는 최소한의 로컬 세션 토큰 추가
+- [x] JSON 계정 기반 API 인증과 developer 역할용 로컬 세션 토큰
+- [ ] 평문 테스트 비밀번호를 bcrypt 해시로 전환
 - [ ] 전역 `guard.root`와 `pending`을 브라우저/작업 세션별 상태로 분리
 - [ ] 같은 프로젝트의 동시 Agent 실행과 적용에 대한 lock·revision 정책
 - [ ] 터미널을 프로젝트 루트로 제한하는 안전 모드와 제한 없는 고급 모드 분리

@@ -65,6 +65,7 @@ export type TerminalResult = CommandResult & {
 };
 
 export type GitInfo = {
+  root: string;
   branch: string;
   branches: string[];
   remote: string;

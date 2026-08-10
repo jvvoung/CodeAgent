@@ -2,7 +2,7 @@
 
 ## 신뢰 모델
 
-AURA는 회사 PC 또는 개인 PC에서 한 명의 사용자가 `127.0.0.1`로 실행하는 로컬 개발 도구를 전제로 합니다. 현재 API 인증, 사용자 계정, 역할 기반 권한, 원격 다중 사용자 격리는 제공하지 않습니다.
+AURA는 회사 PC 또는 개인 PC에서 `127.0.0.1`로 실행하는 로컬 개발 도구를 전제로 합니다. JSON 계정 로그인과 developer/non-developer 역할 검사는 제공하지만, 프로젝트·변경안 상태는 아직 사용자별로 격리되지 않아 원격 다중 사용자 서비스로 사용하면 안 됩니다.
 
 Ollama 요청과 검색·Diff 데이터는 `config/settings.json`의 `ollama.base_url`로 전송됩니다. 기본값은 로컬 `http://localhost:11434`이지만 사용자가 다른 주소로 바꾸면 코드 근거도 그 주소로 전달될 수 있습니다. `OLLAMA_BASE_URL` 환경 변수가 있으면 JSON 값보다 우선합니다.
 
@@ -39,12 +39,14 @@ Ollama 요청과 검색·Diff 데이터는 `config/settings.json`의 `ollama.bas
 
 ## Git 경계
 
+- 사용자가 Git 저장소의 하위 폴더를 프로젝트로 열면 Git 명령은 자동으로 찾은 상위 Git Root에서 실행됩니다.
+- 따라서 `stage all`, commit, branch checkout과 Push는 열린 하위 프로젝트뿐 아니라 같은 Git 저장소의 다른 경로 변경에도 영향을 줄 수 있습니다. 실행 전 Git 결과 탭에서 전체 변경 범위를 확인해야 합니다.
 - Git 명령은 `backend/tools/git_tools.py`에 정의된 인수 배열만 실행합니다.
 - 지원 범위는 status, Diff, staged Diff, stage all, unstage all, commit, branch 조회·checkout, Push입니다.
 - Push API는 `PushRequest.confirmed=true`를 요구하고 UI에서도 원격·브랜치를 보여주는 확인 팝업을 거칩니다.
 - Agent가 Push를 요청해도 프런트엔드 확인 전에는 실행하지 않습니다.
 
-`confirmed=true`는 사용자의 의사 표시용 값이지 인증 토큰이 아닙니다. API에 접근 가능한 다른 로컬 프로세스가 이 값을 보낼 수 있습니다. 또한 `git commit`은 저장소의 Git hook을 실행할 수 있고, Push는 외부 원격 저장소로 데이터를 전송합니다.
+`confirmed=true`는 인증된 developer가 별도로 보내는 사용자 의사 표시 값이며 인증 토큰 자체는 아닙니다. 또한 `git commit`은 저장소의 Git hook을 실행할 수 있고, Push는 외부 원격 저장소로 데이터를 전송합니다.
 
 ## 수동 터미널 경계
 
@@ -61,7 +63,10 @@ Ollama 요청과 검색·Diff 데이터는 `config/settings.json`의 `ollama.bas
 
 - CORS는 `http://localhost:5173`과 `http://127.0.0.1:5173`만 허용합니다.
 - CORS는 브라우저 정책이며 API 인증을 대신하지 않습니다.
-- FastAPI에는 로그인, API 키, CSRF 토큰, 사용자별 세션이 없습니다.
+- `/api/auth/login`은 `config/users.json`을 백엔드에서만 읽고 불투명 세션 토큰을 발급합니다.
+- 프런트엔드는 비밀번호를 저장하지 않고 인증 여부·역할·토큰만 `sessionStorage`에 보관합니다.
+- `/api/health`와 인증 API 외 Code Assistant API는 developer Bearer 토큰이 필요합니다.
+- 초기 `users.json`은 테스트용 평문 비밀번호를 사용합니다. 실제 배포 전 `verify_password()` 경계를 bcrypt 등으로 교체해야 합니다.
 - `guard.root`와 `pending`은 프로세스 전역이므로 여러 브라우저가 같은 상태를 공유합니다.
 - 백엔드는 `--host 127.0.0.1`로 실행하는 것을 권장합니다. `0.0.0.0`으로 노출하면 같은 네트워크의 다른 장치가 파일, Git, 빌드, 터미널 API에 접근할 위험이 있습니다.
 
@@ -78,12 +83,13 @@ Ollama 요청과 검색·Diff 데이터는 `config/settings.json`의 `ollama.bas
 
 ## 우선 보완 항목
 
-1. API 인증과 세션별 프로젝트·pending 상태 분리
-2. 터미널의 프로젝트 루트 제한 또는 명령별 승인/정책 모드
-3. 빌드·테스트·Git hook 실행에 대한 명확한 사용자 승인과 프로세스 sandbox
-4. Push를 포함한 외부 네트워크 작업의 일회 승인 토큰
-5. 대화 기억과 로그의 비밀정보 마스킹·보존 정책
-6. 여러 파일 적용 실패 시 rollback 또는 임시 파일 기반 원자적 교체
-7. Windows Job Object 등을 이용한 timeout 자식 프로세스 트리 종료
+1. bcrypt 비밀번호 해시와 계정 관리 정책 적용
+2. 인증 세션별 프로젝트·pending 상태 분리
+3. 터미널의 프로젝트 루트 제한 또는 명령별 승인/정책 모드
+4. 빌드·테스트·Git hook 실행에 대한 명확한 사용자 승인과 프로세스 sandbox
+5. Push를 포함한 외부 네트워크 작업의 일회 승인 토큰
+6. 대화 기억과 로그의 비밀정보 마스킹·보존 정책
+7. 여러 파일 적용 실패 시 rollback 또는 임시 파일 기반 원자적 교체
+8. Windows Job Object 등을 이용한 timeout 자식 프로세스 트리 종료
 
 `reset --hard`, `clean -fdx`, 디스크·전원 명령은 Agent 전용 도구로 제공하지 않는 정책을 유지해야 합니다.

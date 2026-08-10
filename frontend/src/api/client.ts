@@ -1,13 +1,21 @@
 import axios, {AxiosError} from "axios";
+import type {UserRole} from "../auth";
 import type {AgentEvent, AgentResponse, BranchCheckoutResponse, CommandResult, GitFileChange, GitInfo, OllamaModel, ProposedChange, TerminalResult, TerminalShell, TreeNode} from "../types";
 
 const API_BASE = "http://localhost:8000/api";
 const http = axios.create({baseURL: API_BASE, timeout: 310_000});
+http.interceptors.request.use((config) => {
+  const token = sessionStorage.getItem("aura.authToken");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
 
 export function errorMessage(error: unknown): string {
   if (error instanceof AxiosError) {
     const detail = error.response?.data?.detail;
+    const message = error.response?.data?.message;
     if (typeof detail === "string") return detail;
+    if (typeof message === "string") return message;
     if (error.code === "ECONNABORTED") return "요청 시간이 초과되었습니다.";
     if (!error.response) return "백엔드 서버(localhost:8000)에 연결할 수 없습니다.";
     return error.message;
@@ -16,13 +24,19 @@ export function errorMessage(error: unknown): string {
 }
 
 export const api = {
-  async health(): Promise<{ok: boolean; python: string; project: string | null; agent_core?: string}> {
+  async login(id: string, password: string): Promise<{success: true; role: UserRole; token: string}> {
+    return (await http.post("/auth/login", {id, password})).data;
+  },
+  async logout(token: string): Promise<void> {
+    await http.post("/auth/logout", undefined, {headers: {Authorization: `Bearer ${token}`}});
+  },
+  async health(): Promise<{ok: boolean; python: string; project: string | null; git_root?: string | null; agent_core?: string}> {
     return (await http.get("/health")).data;
   },
   async models(): Promise<{models: OllamaModel[]; error?: string}> {
     return (await http.get("/ollama/models")).data;
   },
-  async openProject(path: string): Promise<{path: string; name: string; tree: TreeNode[]}> {
+  async openProject(path: string): Promise<{path: string; name: string; git_root: string | null; tree: TreeNode[]}> {
     return (await http.post("/project/open", {path})).data;
   },
   async tree(): Promise<TreeNode[]> {
@@ -43,7 +57,7 @@ export const api = {
   async chatStream(message: string, model: string, onStatus: (event: AgentEvent) => void, signal?: AbortSignal): Promise<AgentResponse> {
     const response = await fetch(`${API_BASE}/agent/chat/stream`, {
       method: "POST",
-      headers: {"Content-Type": "application/json"},
+      headers: {"Content-Type": "application/json", "Authorization": `Bearer ${sessionStorage.getItem("aura.authToken") ?? ""}`},
       body: JSON.stringify({message, model}),
       signal,
     });

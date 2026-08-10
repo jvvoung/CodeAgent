@@ -5,6 +5,11 @@
 ```text
 React + TypeScript
 ├─ App.tsx                    전역 UI 상태와 API orchestration
+├─ auth.ts                    sessionStorage 인증과 공통 페이지 권한
+├─ LoginPage                  AURA 로그인 Form
+├─ HomeView                   로컬 메시지 기반 HOME AI 채팅 UI
+├─ NavigationMenu             역할별 HOME/Code Assistant/Settings/로그아웃 메뉴
+├─ SettingsDialog             임시 테마 선택과 Save/Cancel 모달
 ├─ FileTree                   프로젝트 탐색기
 ├─ EditorPanel               Monaco 코드/Diff 뷰어
 ├─ ChatPanel                 질문, 진행 상태, 중지, 기억 초기화
@@ -15,6 +20,9 @@ React + TypeScript
                   │ HTTP + NDJSON
 FastAPI           ▼
 ├─ main.py                    API 라우트와 Agent 진행 스트림
+├─ api/auth.py                로그인·로그아웃 API
+├─ auth/auth_service.py       JSON 사용자 저장소, 비밀번호 경계, 메모리 세션
+├─ auth/dependencies.py       Bearer 인증과 developer 권한 의존성
 ├─ agent/agent_loop.py        요청 분류, 질문, Git 직접 경로, 변경 Agent 진입
 ├─ agent/tool_agent.py        지속형 Ollama 변경 도구 루프와 안전장치
 ├─ agent/workspace.py         격리 baseline/worktree, 검색·읽기·수정·Diff
@@ -29,9 +37,10 @@ FastAPI           ▼
 ├─ tools/git_tools.py         Git 조회·스테이징·커밋·브랜치·Push
 ├─ tools/build_tools.py       UI 빌드/테스트 명령 판별
 ├─ tools/terminal_tools.py    사용자 터미널 명령 실행과 cwd 추적
-└─ security/path_guard.py     파일 API의 프로젝트 루트 경계
+└─ security/path_guard.py     프로젝트 경계와 상위 Git Root 탐색
 
 config/settings.json          Ollama, Agent, 근거, 대화 문맥 실행 설정
+config/users.json             백엔드 전용 테스트 사용자 정보
 ```
 
 ## 런타임 상태
@@ -41,10 +50,14 @@ FastAPI는 현재 로컬 단일 사용자·단일 프로세스 MVP를 전제로 
 | 상태 | 위치 | 수명 |
 |---|---|---|
 | 열린 프로젝트 루트 | `security.path_guard.guard.root` | 백엔드 프로세스 또는 다음 프로젝트 열기까지 |
+| 발견한 Git 저장소 루트 | `security.path_guard.guard.git_root` | 백엔드 프로세스 또는 다음 프로젝트 열기까지 |
 | 실행 설정 | `config/settings.json` | 각 설정 조회 시 다시 읽음 |
 | 대기 중 변경안 | `tools.patch_tools.pending` | 백엔드 프로세스 또는 적용·폐기·프로젝트 전환까지 |
 | 프로젝트별 대화 | `%LOCALAPPDATA%\AURA\conversations.json` | 사용자가 초기화할 때까지 디스크에 유지 |
 | UI 테마·터미널 종류 | 브라우저 `localStorage` | 브라우저 저장소를 지울 때까지 |
+| 로그인 여부·역할·Bearer 토큰 | 브라우저 `sessionStorage` | 탭 세션 또는 로그아웃까지 |
+| 서버 인증 세션 | `auth.auth_service.AuthService` | 로그아웃 또는 백엔드 재시작까지 |
+| 현재 HOME/Code Assistant 화면 | URL hash와 `App` React 상태 | 새로고침 시 역할 검증 후 복원 |
 | 현재 터미널 cwd | `TerminalPanel` React 상태 | 프로젝트 전환 시 새 프로젝트 루트로 초기화 |
 | 터미널 출력 기록 | `TerminalPanel` React 상태 | 페이지 새로고침까지 |
 
@@ -60,7 +73,9 @@ FastAPI는 현재 로컬 단일 사용자·단일 프로세스 MVP를 전제로 
 
 주요 API 그룹은 다음과 같습니다.
 
-- `/api/health`, `/api/ollama/models`: 실행 상태·설정 파일 경로와 Ollama 모델 조회
+- `/api/auth/login`, `/api/auth/logout`: JSON 계정 검증, 세션 발급과 폐기
+- `/api/health`: 공개 실행 상태와 설정 파일 경로
+- `/api/ollama/models`: developer 전용 Ollama 모델 조회
 - `/api/project/*`: 프로젝트 열기, 트리, 파일 읽기
 - `/api/conversation`: 프로젝트별 대화 조회와 초기화
 - `/api/agent/chat/stream`: NDJSON Agent 진행 이벤트와 최종 응답
@@ -69,7 +84,7 @@ FastAPI는 현재 로컬 단일 사용자·단일 프로세스 MVP를 전제로 
 - `/api/build`, `/api/test`: 프로젝트 표식 기반 명령 실행
 - `/api/terminal`: 사용자가 선택한 셸에서 임의 명령 실행
 
-프런트엔드는 `message`와 `model`만 Agent 요청으로 전송합니다. Monaco에서 현재 열어 둔 파일은 Agent 컨텍스트에 자동 포함되지 않습니다.
+`/api/health`와 로그인 외 Code Assistant API는 Bearer 토큰과 developer 역할을 확인합니다. 프런트엔드는 Agent 본문에는 `message`와 `model`만 넣고 인증 토큰은 Authorization 헤더로 전송합니다. Monaco에서 현재 열어 둔 파일은 Agent 컨텍스트에 자동 포함되지 않습니다.
 
 ## 요청 분기
 
@@ -126,6 +141,8 @@ Agent 변경 검증과 UI의 빌드/테스트 버튼은 서로 다른 목적과 
 
 ## Git과 터미널
 
+프로젝트를 열 때 `PathGuard.discover_git_root()`는 `git -C <ProjectPath> rev-parse --show-toplevel`을 우선 실행하고, 실패하면 드라이브 루트까지 `.git`을 탐색합니다. 파일 탐색·Agent·빌드는 사용자가 연 `ProjectPath`를 유지하고, Git API만 별도의 `GitRoot`를 작업 디렉터리로 사용합니다.
+
 Git API는 인수 배열을 사용해 `git`을 실행하며, status/diff 외에도 stage, unstage, commit, branch checkout과 Push를 지원합니다. Push 요청은 `PushRequest.confirmed`가 반드시 `true`여야 하고 UI에도 확인 팝업이 있습니다.
 
 수동 터미널은 Agent 도구와 분리되어 있습니다. Agent가 임의 셸을 호출할 수는 없지만 사용자는 CMD, PowerShell, Git Bash에서 임의 명령을 실행할 수 있습니다. 터미널은 명령 종료 후 cwd를 추출해 다음 명령의 시작 경로로 사용하며, 현재 구현은 프로젝트 밖 디렉터리 이동을 금지하지 않습니다.
@@ -138,5 +155,6 @@ Git API는 인수 배열을 사용해 `git`을 실행하며, status/diff 외에�
 - 코드 변경 경로에서 사용되지 않는 이전 `propose_from_evidence`/review/repair 코드가 남아 있습니다.
 - pending 변경안은 메모리 상태라 백엔드 재시작 시 사라집니다.
 - 터미널은 OS sandbox나 명령 allowlist가 없습니다.
-- API 사용자 인증과 세션별 권한 관리가 없습니다.
+- 인증 토큰은 백엔드 프로세스 메모리에만 있어 백엔드 재시작 시 다시 로그인해야 합니다.
+- 인증은 되어도 `guard.root`와 pending 변경안은 사용자별로 분리되지 않습니다.
 - Pull Request, pull/fetch, 브랜치 생성 기능은 아직 없습니다.

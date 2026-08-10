@@ -1,11 +1,16 @@
-import {useEffect, useMemo, useRef, useState} from "react";
+import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import type {CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent} from "react";
 import {api, errorMessage} from "./api/client";
+import {canAccessPage, clearAuthSession, pageFromHash, readAuthSession, saveAuthSession, type AppPage, type UserRole} from "./auth";
 import {ChangesPanel} from "./components/ChangesPanel";
 import {ChatPanel, toolLabel} from "./components/ChatPanel";
 import {EditorPanel} from "./components/EditorPanel";
 import {FileTree} from "./components/FileTree";
+import {HomeView} from "./components/HomeView";
+import {LoginPage} from "./components/LoginPage";
+import {NavigationMenu} from "./components/NavigationMenu";
 import {OutputPanel} from "./components/OutputPanel";
+import {SettingsDialog, type AuraTheme} from "./components/SettingsDialog";
 import type {AgentEvent, ChatEntry, CommandAction, CommandResult, GitFileChange, GitInfo, OllamaModel, ProposedChange, TreeNode} from "./types";
 import {repositoryName} from "./utils/git";
 
@@ -36,7 +41,10 @@ function treeHasFile(nodes: TreeNode[], path: string): boolean {
 type ResizeTarget = "explorer" | "side" | "output";
 
 export default function App() {
-  const [theme, setTheme] = useState<"dark" | "light">(() => localStorage.getItem("aura.theme") === "light" ? "light" : "dark");
+  const [theme, setTheme] = useState<AuraTheme>(() => localStorage.getItem("aura.theme") === "light" ? "light" : "dark");
+  const [authSession, setAuthSession] = useState(readAuthSession);
+  const [page, setPage] = useState<AppPage>("home");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [root, setRoot] = useState(() => localStorage.getItem("projectRoot") ?? "");
   const [projectName, setProjectName] = useState("");
   const [tree, setTree] = useState<TreeNode[]>([]);
@@ -65,9 +73,11 @@ export default function App() {
   const [explorerWidth, setExplorerWidth] = useState(() => savedSize("layout.explorerWidth", 250));
   const [sideWidth, setSideWidth] = useState(() => savedSize("layout.sideWidth", 390));
   const [outputHeight, setOutputHeight] = useState(() => savedSize("layout.outputHeight", 170));
+  const [treeRevision, setTreeRevision] = useState(0);
   const agentController = useRef<AbortController | null>(null);
 
   const output = outputTab === "build" ? buildResult : gitResult;
+  const isDeveloper = authSession?.role === "developer";
   const projectOpen = !!projectName;
   const fileCount = useMemo(() => {
     const count = (nodes: TreeNode[]): number => nodes.reduce((sum, node) => sum + (node.type === "file" ? 1 : count(node.children)), 0);
@@ -78,6 +88,13 @@ export default function App() {
     api.health().then((health) => {
       setBackendWarning(health.agent_core === "persistent-ollama-tools-v1" ? "" : "백엔드가 이전 에이전트 코어로 실행 중입니다. 백엔드 PowerShell을 종료하고 다시 실행해 주세요.");
     }).catch(() => setBackendWarning("백엔드 서버(localhost:8000)에 연결할 수 없습니다."));
+  }, []);
+
+  useEffect(() => {
+    if (!isDeveloper) {
+      setModels([]); setModel(""); setOllamaError("");
+      return;
+    }
     api.models().then((data) => {
       setModels(data.models);
       setModel((current) => current && data.models.some((item) => item.name === current && item.supports_tools)
@@ -85,18 +102,17 @@ export default function App() {
         : data.models.find((item) => item.supports_tools)?.name ?? "");
       setOllamaError(data.error ?? "");
     }).catch((error) => setOllamaError(errorMessage(error)));
-  }, []);
+  }, [isDeveloper]);
 
   useEffect(() => localStorage.setItem("layout.explorerWidth", String(explorerWidth)), [explorerWidth]);
   useEffect(() => localStorage.setItem("layout.sideWidth", String(sideWidth)), [sideWidth]);
   useEffect(() => localStorage.setItem("layout.outputHeight", String(outputHeight)), [outputHeight]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem("aura.theme", theme);
   }, [theme]);
   useEffect(() => () => agentController.current?.abort(), []);
   useEffect(() => {
-    if (!projectOpen) return;
+    if (!projectOpen || !isDeveloper) return;
     let active = true;
     const synchronize = () => api.changes().then((next) => {
       if (!active) return;
@@ -106,7 +122,23 @@ export default function App() {
     synchronize();
     const timer = window.setInterval(synchronize, 2000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [projectOpen]);
+  }, [isDeveloper, projectOpen]);
+
+  const navigate = useCallback((requested: AppPage) => {
+    if (!authSession) return;
+    const next = canAccessPage(authSession.role, requested) ? requested : "home";
+    setPage(next);
+    const hash = `#/${next}`;
+    if (window.location.hash !== hash) window.history.replaceState(null, "", hash);
+  }, [authSession]);
+
+  useEffect(() => {
+    if (!authSession) return;
+    const synchronizeRoute = () => navigate(pageFromHash(window.location.hash));
+    synchronizeRoute();
+    window.addEventListener("hashchange", synchronizeRoute);
+    return () => window.removeEventListener("hashchange", synchronizeRoute);
+  }, [authSession, navigate]);
 
   const flash = (message: string) => {
     setNotice(message);
@@ -127,6 +159,7 @@ export default function App() {
       setRoot(data.path);
       setProjectName(data.name);
       setTree(data.tree);
+      setTreeRevision((current) => current + 1);
       const initialFile = defaultSourceFile(data.tree);
       setFile(initialFile);
       setContent(initialFile ? await api.file(initialFile) : "");
@@ -151,6 +184,13 @@ export default function App() {
     try {
       setFile(path); setContent(await api.file(path)); setSelected(null);
     } catch (error) { flash(errorMessage(error)); }
+  };
+
+  const saveTheme = (nextTheme: AuraTheme) => {
+    setTheme(nextTheme);
+    localStorage.setItem("aura.theme", nextTheme);
+    setSettingsOpen(false);
+    flash(`${nextTheme === "dark" ? "Dark" : "Light"} Mode를 저장했습니다.`);
   };
 
   const switchBranch = async (branch: string) => {
@@ -356,6 +396,26 @@ export default function App() {
     }
   };
 
+  const completeLogin = (role: UserRole, token: string) => {
+    setAuthSession(saveAuthSession(role, token));
+    setPage("home");
+    window.history.replaceState(null, "", "#/home");
+  };
+
+  const logout = () => {
+    if (authSession) api.logout(authSession.token).catch(() => undefined);
+    agentController.current?.abort();
+    clearAuthSession();
+    setAuthSession(null);
+    setPage("home");
+    setSettingsOpen(false);
+    setProjectName(""); setTree([]); setFile(""); setContent("");
+    setMessages([]); setChanges([]); setSelected(null); setGitInfo(null); setStagedFiles(null);
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  };
+
+  if (!authSession) return <LoginPage onLogin={completeLogin} />;
+
   const layoutStyle = {
     "--explorer-width": `${explorerWidth}px`,
     "--side-width": `${sideWidth}px`,
@@ -363,23 +423,26 @@ export default function App() {
   } as CSSProperties;
 
   return (
-    <main className="app-shell" style={layoutStyle}>
-      <header className="topbar">
-        <div className="brand"><strong className="brand-wordmark">AURA</strong><button className="theme-orb" aria-label={theme === "dark" ? "화이트 모드로 변경" : "다크 모드로 변경"} title={theme === "dark" ? "화이트 모드" : "다크 모드"} aria-pressed={theme === "light"} onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}><span /></button></div>
-        <div className="project-picker"><span className={`connection-dot ${projectOpen ? "online" : ""}`} /><input aria-label="프로젝트 폴더 경로" placeholder="프로젝트 폴더 경로를 입력하세요" value={root} onChange={(event) => setRoot(event.target.value)} onKeyDown={(event) => event.key === "Enter" && openProject()} /><button className="primary" onClick={openProject}>프로젝트 열기</button></div>
-        <div className="git-context" aria-label="Git 저장소 및 브랜치">
-          <div className="git-context-field repository-field"><span>깃 저장소</span><strong title={gitInfo?.remote || "Git 저장소 없음"}>{repositoryName(gitInfo?.remote ?? "")}</strong></div>
-          <label className="git-context-field branch-field"><span>깃 브랜치</span><select aria-label="Git 브랜치 선택" value={gitInfo?.branch ?? ""} disabled={!gitInfo || branchBusy || agentBusy} onChange={(event) => switchBranch(event.target.value)}><option value="">브랜치 없음</option>{gitInfo?.branches.map((branch) => <option key={branch} value={branch}>{branch}</option>)}</select>{branchBusy && <i className="branch-spinner" aria-label="브랜치 전환 중" />}</label>
-        </div>
-        <div className="model-picker"><label>모델</label><select aria-label="Ollama 모델" value={model} disabled={agentBusy} onChange={(event) => setModel(event.target.value)}><option value="">도구 지원 모델 없음</option>{models.map((item) => <option key={item.name} value={item.name} disabled={!item.supports_tools}>{item.name}{item.supports_tools ? "" : " · 도구 미지원"}</option>)}</select><span className={`model-state ${models.length ? "ready" : ""}`}><i />{models.length ? "연결됨" : "오프라인"}</span></div>
+    <main className={`app-shell ${page === "home" ? "home-shell" : ""}`} style={layoutStyle}>
+      <header className={`topbar ${page === "home" ? "home-topbar" : ""}`}>
+        <div className="brand"><NavigationMenu page={page} role={authSession.role} onNavigate={navigate} onSettings={() => setSettingsOpen(true)} onLogout={logout} /><strong className="brand-wordmark">AURA</strong></div>
+        {page === "assistant" && <>
+          <div className="project-picker"><span className={`connection-dot ${projectOpen ? "online" : ""}`} /><input aria-label="프로젝트 폴더 경로" placeholder="프로젝트 폴더 경로를 입력하세요" value={root} onChange={(event) => setRoot(event.target.value)} onKeyDown={(event) => event.key === "Enter" && openProject()} /><button className="primary" onClick={openProject}>프로젝트 열기</button></div>
+          <div className="git-context" aria-label="Git 저장소 및 브랜치">
+            <div className="git-context-field repository-field"><span>깃 저장소</span><strong title={[gitInfo?.root, gitInfo?.remote].filter(Boolean).join("\n") || "Git 저장소 없음"}>{repositoryName(gitInfo?.remote || gitInfo?.root || "")}</strong></div>
+            <label className="git-context-field branch-field"><span>깃 브랜치</span><select aria-label="Git 브랜치 선택" value={gitInfo?.branch ?? ""} disabled={!gitInfo || branchBusy || agentBusy} onChange={(event) => switchBranch(event.target.value)}><option value="">브랜치 없음</option>{gitInfo?.branches.map((branch) => <option key={branch} value={branch}>{branch}</option>)}</select>{branchBusy && <i className="branch-spinner" aria-label="브랜치 전환 중" />}</label>
+          </div>
+          <div className="model-picker"><label>모델</label><select aria-label="Ollama 모델" value={model} disabled={agentBusy} onChange={(event) => setModel(event.target.value)}><option value="">도구 지원 모델 없음</option>{models.map((item) => <option key={item.name} value={item.name} disabled={!item.supports_tools}>{item.name}{item.supports_tools ? "" : " · 도구 미지원"}</option>)}</select><span className={`model-state ${models.length ? "ready" : ""}`}><i />{models.length ? "연결됨" : "오프라인"}</span></div>
+        </>}
       </header>
       {backendWarning && <div className="service-warning">{backendWarning}</div>}
-      {ollamaError && <div className="service-warning">Ollama에 연결할 수 없습니다. AI 기능을 사용하려면 Ollama를 실행해 주세요.</div>}
+      {isDeveloper && ollamaError && <div className="service-warning">Ollama에 연결할 수 없습니다. AI 기능을 사용하려면 Ollama를 실행해 주세요.</div>}
       {notice && <div className="toast">{notice}</div>}
+      {page === "home" ? <HomeView canUseCodeAssistant={isDeveloper} onOpenAssistant={() => navigate("assistant")} /> : <>
       <div className="ide-grid">
         <aside className="explorer-panel">
           <div className="panel-title"><span>파일 탐색기</span><span className="panel-hint">{fileCount ? `${fileCount}개 파일` : "파일 없음"}</span></div>
-          {projectOpen ? <><div className="project-heading"><span>⌄</span>{projectName}</div><FileTree nodes={tree} selected={file} onOpen={openFile} /></> : <div className="aside-empty"><span className="empty-icon">⌗</span><strong>열린 프로젝트가 없습니다</strong><p>상단에 로컬 프로젝트 경로를 입력해 주세요.</p></div>}
+          {projectOpen ? <><div className="project-heading"><span>⌄</span>{projectName}</div><FileTree key={treeRevision} nodes={tree} selected={file} onOpen={openFile} /></> : <div className="aside-empty"><span className="empty-icon">⌗</span><strong>열린 프로젝트가 없습니다</strong><p>상단에 로컬 프로젝트 경로를 입력해 주세요.</p></div>}
         </aside>
         <div className="resize-handle vertical" role="separator" aria-label="파일 탐색기 너비 조절" aria-orientation="vertical" tabIndex={0} onPointerDown={(event) => beginResize("explorer", event)} onKeyDown={(event) => resizeWithKeyboard("explorer", event)} />
         <div className="editor-column"><EditorPanel file={file} content={content} change={selected} theme={theme} /></div>
@@ -409,6 +472,8 @@ export default function App() {
         </div>
       </div>}
       <footer className="statusbar"><span><i className={projectOpen ? "ok" : ""} />{projectOpen ? projectName : "프로젝트 없음"}</span><span>Ollama {models.length ? "연결됨" : "오프라인"}</span><span>대기 중인 변경 {changes.length}개</span><span className="spacer" /><span>로컬 전용</span><span>UTF-8</span></footer>
+      </>}
+      <SettingsDialog open={settingsOpen} theme={theme} onCancel={() => setSettingsOpen(false)} onSave={saveTheme} />
     </main>
   );
 }

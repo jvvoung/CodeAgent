@@ -8,10 +8,12 @@ AURA는 React, FastAPI, Monaco Editor, Git CLI와 로컬 Ollama를 연결한 Win
 
 ### 워크스페이스와 UI
 
-- 프로젝트 폴더 열기, 파일 탐색기, 읽기 전용 Monaco 코드 뷰어
+- AURA 로그인 화면, 브라우저 세션 유지, 로그아웃과 developer/non-developer 권한 분리
+- HOME AI 채팅 UI와 Hamburger Navigation의 HOME, Code Assistant, Settings 메뉴
+- 프로젝트 폴더 열기, 하위 폴더 기본 접힘 파일 탐색기, 읽기 전용 Monaco 코드 뷰어
 - Monaco side-by-side DiffEditor와 첫 변경 지점 자동 이동
 - 파일 탐색기, 코드, 변경 제안/AI 채팅, 결과 패널 크기 조절
-- 다크/화이트 테마와 브라우저 로컬 설정 유지
+- Settings 모달의 Dark/Light 테마 선택, Save/Cancel과 브라우저 로컬 설정 유지
 - 변경 제안과 AI 채팅 탭, 진행 상태, 중지, 프로젝트별 대화 초기화
 
 ### 로컬 Agent
@@ -37,7 +39,7 @@ AURA는 React, FastAPI, Monaco Editor, Git CLI와 로컬 Ollama를 연결한 Win
 
 ### Git, 빌드와 터미널
 
-- Git 저장소·브랜치 표시, 로컬/원격 브랜치 전환
+- 열린 경로의 상위 Git Root 자동 검색, Git 저장소·브랜치 표시, 로컬/원격 브랜치 전환
 - status, 작업 트리 Diff, 스테이징 파일별 Diff
 - 전체 스테이징, 스테이징 해제, 커밋
 - 사용자 확인 팝업과 API 확인 플래그를 거치는 Push
@@ -131,7 +133,7 @@ Set-Location "<CodeAgent 저장 경로>\frontend"
 npm.cmd run dev
 ```
 
-브라우저에서 `http://127.0.0.1:5173`을 열고 작업할 프로젝트의 절대 경로를 입력합니다.
+브라우저에서 `http://127.0.0.1:5173`을 열면 로그인 화면이 표시됩니다. 테스트 계정은 `config/users.json`에서 백엔드가 읽으며 `1 / 1`은 developer, `2 / 2`는 non-developer입니다. 로그인 후 HOME으로 이동하고 developer만 Navigation의 `Code Assistant`에서 프로젝트를 열 수 있습니다. Git 저장소 내부의 하위 폴더를 열어도 상위 Git Root를 자동으로 찾아 Git 기능에 사용합니다.
 
 ### 3. 종료와 재시작
 
@@ -180,7 +182,7 @@ npm.cmd run build
 - 수동 터미널은 사용자가 입력한 임의 명령을 실행합니다. 현재 명령 allowlist나 OS sandbox가 없으므로 신뢰할 수 있는 명령만 실행해야 합니다.
 - 빌드/테스트는 저장소의 빌드 스크립트를 실행하므로 신뢰하지 않는 프로젝트를 열어 실행하면 안 됩니다.
 - Git commit은 저장소에 설정된 Git hook을 실행할 수 있습니다.
-- AURA API에는 사용자 인증이 없으므로 백엔드는 `127.0.0.1`에만 바인딩하는 것을 권장합니다.
-- Push는 UI 확인과 `confirmed: true` 요청 검증을 거치지만, 이는 사용자 인증이나 권한 시스템을 대체하지 않습니다.
+- Code Assistant API는 로그인 시 발급한 메모리 토큰과 developer 역할을 확인하지만, 초기 계정 비밀번호는 테스트용 평문이므로 백엔드는 계속 `127.0.0.1`에만 바인딩하는 것을 권장합니다.
+- Push는 developer 인증 외에도 UI 확인과 `confirmed: true` 요청 검증을 거칩니다. 이는 Git 원격 인증을 대체하지 않습니다.
 
 회사 PC 설치 절차는 [COMPANY_SETUP.md](COMPANY_SETUP.md)를 참고하세요. 자세한 내부 구조와 정책은 [ARCHITECTURE.md](ARCHITECTURE.md), [AGENT_FLOW.md](AGENT_FLOW.md), [SECURITY.md](SECURITY.md), [TODO.md](TODO.md)에 정리되어 있습니다.

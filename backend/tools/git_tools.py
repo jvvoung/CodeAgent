@@ -10,9 +10,9 @@ MAX_DIFF_FILE_CHARS = 2_000_000
 async def git_command(args: list[str], timeout: float = 60) -> dict:
     if not guard.root:
         raise ValueError("먼저 프로젝트를 열어주세요.")
-    if not (guard.root / ".git").exists():
-        raise ValueError("열린 프로젝트가 Git 저장소가 아닙니다.")
-    return await run_command(["git", *args], str(guard.root), timeout=timeout)
+    if not guard.git_root:
+        raise ValueError("열린 프로젝트와 상위 폴더에서 Git 저장소를 찾지 못했습니다.")
+    return await run_command(["git", *args], str(guard.git_root), timeout=timeout)
 
 
 async def status() -> dict:
@@ -172,6 +172,7 @@ async def repository_info() -> dict:
     has_unstaged = any(len(line) > 1 and (line[1] != " " or line.startswith("??")) for line in lines)
     branch_info = await branches()
     return {
+        "root": str(guard.git_root) if guard.git_root else "",
         "branch": branch,
         "branches": branch_info["branches"],
         "remote": remote,

@@ -3,11 +3,13 @@ import asyncio
 import json
 import platform
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
+from api.auth import router as auth_router
 from agent.agent_loop import run_agent
+from auth.dependencies import require_developer
 from llm.ollama_client import OllamaClient
 from models.schemas import ApplyRequest, BranchCheckoutRequest, ChatRequest, CommitRequest, OpenProjectRequest, PushRequest, SearchRequest, TerminalRequest
 from security.path_guard import guard
@@ -37,6 +39,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(auth_router)
 
 
 def fail(exc: object) -> None:
@@ -51,12 +54,13 @@ async def health():
         "ok": True,
         "python": platform.python_version(),
         "project": str(guard.root) if guard.root else None,
+        "git_root": str(guard.git_root) if guard.git_root else None,
         "agent_core": "persistent-ollama-tools-v1",
         "settings_file": str(settings_path()),
     }
 
 
-@app.get("/api/ollama/models")
+@app.get("/api/ollama/models", dependencies=[Depends(require_developer)])
 async def models():
     try:
         return {"models": await OllamaClient().list_model_details()}
@@ -64,17 +68,22 @@ async def models():
         return {"models": [], "error": f"Ollama unavailable: {exc}"}
 
 
-@app.post("/api/project/open")
+@app.post("/api/project/open", dependencies=[Depends(require_developer)])
 async def open_project(body: OpenProjectRequest):
     try:
         root = guard.open(body.path)
         clear()
-        return {"path": str(root), "name": root.name, "tree": tree()}
+        return {
+            "path": str(root),
+            "name": root.name,
+            "git_root": str(guard.git_root) if guard.git_root else None,
+            "tree": tree(),
+        }
     except Exception as exc:
         fail(exc)
 
 
-@app.get("/api/project/tree")
+@app.get("/api/project/tree", dependencies=[Depends(require_developer)])
 async def project_tree():
     try:
         return {"tree": tree()}
@@ -82,7 +91,7 @@ async def project_tree():
         fail(exc)
 
 
-@app.get("/api/conversation")
+@app.get("/api/conversation", dependencies=[Depends(require_developer)])
 async def conversation_history():
     try:
         if not guard.root:
@@ -92,7 +101,7 @@ async def conversation_history():
         fail(exc)
 
 
-@app.delete("/api/conversation")
+@app.delete("/api/conversation", dependencies=[Depends(require_developer)])
 async def clear_conversation():
     try:
         if not guard.root:
@@ -103,7 +112,7 @@ async def clear_conversation():
         fail(exc)
 
 
-@app.get("/api/file")
+@app.get("/api/file", dependencies=[Depends(require_developer)])
 async def file(path: str):
     try:
         return {"path": path, "content": read_file(path)}
@@ -111,7 +120,7 @@ async def file(path: str):
         fail(exc)
 
 
-@app.post("/api/search")
+@app.post("/api/search", dependencies=[Depends(require_developer)])
 async def search(body: SearchRequest):
     try:
         return {"results": search_code(body.query)}
@@ -119,7 +128,7 @@ async def search(body: SearchRequest):
         fail(exc)
 
 
-@app.post("/api/agent/chat")
+@app.post("/api/agent/chat", dependencies=[Depends(require_developer)])
 async def chat(body: ChatRequest):
     try:
         return await run_agent(body.message, body.model)
@@ -127,7 +136,7 @@ async def chat(body: ChatRequest):
         fail(exc)
 
 
-@app.post("/api/agent/chat/stream")
+@app.post("/api/agent/chat/stream", dependencies=[Depends(require_developer)])
 async def chat_stream(body: ChatRequest):
     async def stream():
         queue: asyncio.Queue[dict] = asyncio.Queue()
@@ -160,12 +169,12 @@ async def chat_stream(body: ChatRequest):
     return StreamingResponse(stream(), media_type="application/x-ndjson")
 
 
-@app.get("/api/changes")
+@app.get("/api/changes", dependencies=[Depends(require_developer)])
 async def changes():
     return {"changes": [{"path": path, **item} for path, item in pending.items()]}
 
 
-@app.post("/api/change/apply")
+@app.post("/api/change/apply", dependencies=[Depends(require_developer)])
 async def apply_changes(body: ApplyRequest):
     try:
         return {"ok": True, "paths": apply(body.paths, confirm_unverified=body.confirm_unverified)}
@@ -173,12 +182,12 @@ async def apply_changes(body: ApplyRequest):
         fail(exc)
 
 
-@app.post("/api/change/reject")
+@app.post("/api/change/reject", dependencies=[Depends(require_developer)])
 async def reject_changes(body: ApplyRequest):
     return {"ok": True, "paths": reject(body.paths)}
 
 
-@app.get("/api/git/status")
+@app.get("/api/git/status", dependencies=[Depends(require_developer)])
 async def git_status():
     try:
         return await git_status_command()
@@ -186,7 +195,7 @@ async def git_status():
         fail(exc)
 
 
-@app.get("/api/git/diff")
+@app.get("/api/git/diff", dependencies=[Depends(require_developer)])
 async def git_diff():
     try:
         return await git_diff_command()
@@ -194,7 +203,7 @@ async def git_diff():
         fail(exc)
 
 
-@app.get("/api/git/diff/staged")
+@app.get("/api/git/diff/staged", dependencies=[Depends(require_developer)])
 async def git_staged_diff():
     try:
         return await git_diff_command(staged=True)
@@ -202,7 +211,7 @@ async def git_staged_diff():
         fail(exc)
 
 
-@app.get("/api/git/staged-changes")
+@app.get("/api/git/staged-changes", dependencies=[Depends(require_developer)])
 async def git_staged_changes():
     try:
         return await git_staged_changes_command()
@@ -210,7 +219,7 @@ async def git_staged_changes():
         fail(exc)
 
 
-@app.get("/api/git/info")
+@app.get("/api/git/info", dependencies=[Depends(require_developer)])
 async def git_info():
     try:
         return await git_info_command()
@@ -218,7 +227,7 @@ async def git_info():
         fail(exc)
 
 
-@app.post("/api/git/checkout")
+@app.post("/api/git/checkout", dependencies=[Depends(require_developer)])
 async def git_checkout(body: BranchCheckoutRequest):
     try:
         result = await git_checkout_command(body.branch)
@@ -234,7 +243,7 @@ async def git_checkout(body: BranchCheckoutRequest):
         fail(exc)
 
 
-@app.post("/api/git/stage")
+@app.post("/api/git/stage", dependencies=[Depends(require_developer)])
 async def git_stage():
     try:
         return await git_stage_command()
@@ -242,7 +251,7 @@ async def git_stage():
         fail(exc)
 
 
-@app.post("/api/git/unstage")
+@app.post("/api/git/unstage", dependencies=[Depends(require_developer)])
 async def git_unstage():
     try:
         return await git_unstage_command()
@@ -250,7 +259,7 @@ async def git_unstage():
         fail(exc)
 
 
-@app.post("/api/git/commit")
+@app.post("/api/git/commit", dependencies=[Depends(require_developer)])
 async def git_commit(body: CommitRequest):
     try:
         return await git_commit_command(body.message)
@@ -258,7 +267,7 @@ async def git_commit(body: CommitRequest):
         fail(exc)
 
 
-@app.post("/api/git/push")
+@app.post("/api/git/push", dependencies=[Depends(require_developer)])
 async def git_push(body: PushRequest):
     try:
         return await git_push_command()
@@ -266,7 +275,7 @@ async def git_push(body: PushRequest):
         fail(exc)
 
 
-@app.post("/api/build")
+@app.post("/api/build", dependencies=[Depends(require_developer)])
 async def build():
     try:
         return await run_build()
@@ -274,7 +283,7 @@ async def build():
         fail(exc)
 
 
-@app.post("/api/test")
+@app.post("/api/test", dependencies=[Depends(require_developer)])
 async def test():
     try:
         return await run_build(test=True)
@@ -282,7 +291,7 @@ async def test():
         fail(exc)
 
 
-@app.post("/api/terminal")
+@app.post("/api/terminal", dependencies=[Depends(require_developer)])
 async def terminal(body: TerminalRequest):
     try:
         return await run_terminal(body.shell, body.command, cwd=body.cwd)

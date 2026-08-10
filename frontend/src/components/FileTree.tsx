@@ -12,7 +12,7 @@ function icon(name: string): string {
 }
 
 function NodeRow({node, selected, onOpen}: {node: TreeNode; selected: string; onOpen: (path: string) => void}) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   if (node.type === "directory") {
     return (
       <li>
